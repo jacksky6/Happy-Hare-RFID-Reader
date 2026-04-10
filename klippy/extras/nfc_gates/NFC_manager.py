@@ -20,7 +20,7 @@
 
 import threading
 
-import extras.bus as bus_module
+import bus as bus_module
 
 from .log            import configure, logger
 from .pn532_driver   import PN532Driver
