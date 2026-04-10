@@ -8,7 +8,7 @@
 # For the per-lane I2C/PN532 path (one reader per EBB42 lane board),
 # see the sibling module: klippy/extras/nfc_gate.py
 
-from .manager import NfcGateManager
+from .NFC_manager import NfcGateManager
 
 
 def load_config(config):
