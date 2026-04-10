@@ -9,13 +9,12 @@
 #        nfc_gate.py   — entry point for [nfc_gate laneN]  (Path C / EBB42)
 #        nfc_gates/    — package for [nfc_gates]            (Paths A & B / Pico)
 #
-#   2. Installs config files into ~/printer_data/config/NFC/:
-#        - All hardware configs and macros are copied fresh on every run.
-#        - nfc_vars.cfg (your settings) is only copied on first install.
-#          On subsequent installs it is restored from the backup so your
-#          Spoolman URL and other settings are never overwritten.
-#        - Any existing NFC/ directory is renamed to NFC_<timestamp> first,
-#          giving you a timestamped backup before each update.
+#   2. Installs config files into ~/printer_data/config/NFC/ using a
+#      non-destructive merge strategy:
+#        - If a file does not exist yet, it is copied from the repo template.
+#        - If a file already exists, only sections that are present in the
+#          repo template but MISSING from the existing file are appended.
+#          Sections the user has already configured are never overwritten.
 #
 # Usage:
 #   bash install.sh
@@ -29,7 +28,6 @@ REPO_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 KLIPPER_EXTRAS="${HOME}/klipper/klippy/extras"
 PRINTER_CONFIG="${HOME}/printer_data/config"
 NFC_CONFIG_DIR="${PRINTER_CONFIG}/NFC"
-TIMESTAMP="$(date +%Y%m%d_%H%M%S)"
 
 # ── Verify Klipper is present ─────────────────────────────────────────────────
 if [ ! -d "${KLIPPER_EXTRAS}" ]; then
@@ -59,35 +57,116 @@ ln -sfn "${REPO_DIR}/klippy/extras/nfc_gate.py" "${KLIPPER_EXTRAS}/nfc_gate.py"
 echo "Linking nfc_gates/ package..."
 ln -sfn "${REPO_DIR}/klippy/extras/nfc_gates" "${KLIPPER_EXTRAS}/nfc_gates"
 
-# ── Back up existing NFC config directory ────────────────────────────────────
-BACKUP_VARS=""
-if [ -d "${NFC_CONFIG_DIR}" ]; then
-    BACKUP_DIR="${PRINTER_CONFIG}/NFC_${TIMESTAMP}"
-    echo "Backing up existing NFC config to $(basename "${BACKUP_DIR}")..."
-    mv "${NFC_CONFIG_DIR}" "${BACKUP_DIR}"
-    if [ -f "${BACKUP_DIR}/nfc_vars.cfg" ]; then
-        BACKUP_VARS="${BACKUP_DIR}/nfc_vars.cfg"
-    fi
-fi
-
-# ── Create fresh NFC config directory ────────────────────────────────────────
+# ── Create NFC config directory if it does not exist ─────────────────────────
 mkdir -p "${NFC_CONFIG_DIR}"
 
-# ── Copy read-only config files (refreshed on every install / update) ─────────
-echo "Copying config files to ${NFC_CONFIG_DIR}..."
-cp "${REPO_DIR}/config/nfc_macros.cfg"               "${NFC_CONFIG_DIR}/nfc_macros.cfg"
-cp "${REPO_DIR}/config/nfc_gates_spi_rc522.cfg"      "${NFC_CONFIG_DIR}/nfc_gates_spi_rc522.cfg"
-cp "${REPO_DIR}/config/nfc_gates_i2c_pn532_pico.cfg" "${NFC_CONFIG_DIR}/nfc_gates_i2c_pn532_pico.cfg"
-cp "${REPO_DIR}/config/nfc_gate_i2c_pn532.cfg"       "${NFC_CONFIG_DIR}/nfc_gate_i2c_pn532.cfg"
+# ── Merge helper — copy file or append missing sections ──────────────────────
+#
+# Usage: merge_config <src> <dst>
+#
+# If <dst> does not exist: copies <src> to <dst> and reports [copied].
+# If <dst> exists: parses Klipper-style section headers ( [section name] ) in
+# both files.  For each section present in <src> but absent in <dst>, the full
+# section block is appended to <dst>.  Existing sections are left untouched.
+# Reports [skip] / [append] per section, or "(no new sections)" if up-to-date.
+#
+merge_config() {
+    local src="$1"
+    local dst="$2"
+    local name
+    name="$(basename "${dst}")"
 
-# ── nfc_vars.cfg — restore user's copy or install fresh template ──────────────
-if [ -n "${BACKUP_VARS}" ]; then
-    cp "${BACKUP_VARS}" "${NFC_CONFIG_DIR}/nfc_vars.cfg"
-    echo "Restored your nfc_vars.cfg from backup."
-else
-    cp "${REPO_DIR}/config/nfc_vars.cfg" "${NFC_CONFIG_DIR}/nfc_vars.cfg"
-    echo "Installed nfc_vars.cfg template — edit this file to set your Spoolman URL."
-fi
+    if [ ! -f "${dst}" ]; then
+        cp "${src}" "${dst}"
+        echo "  [copied]   ${name}"
+        return
+    fi
+
+    echo "  [exists]   ${name} — checking for missing sections..."
+    python3 - "${src}" "${dst}" <<'PYEOF' \
+        || echo "    WARNING: merge script failed — ${name} left unchanged"
+import sys
+import re
+
+src_path, dst_path = sys.argv[1], sys.argv[2]
+
+
+def parse_sections(text):
+    """Return (preamble_str, [(header_str, body_str), ...]).
+
+    preamble_str — all text before the first [section] line.
+    header_str   — the [section name] line, stripped of trailing whitespace.
+    body_str     — all lines after the header up to (not including) the next
+                   header, as a single string with newlines preserved.
+    """
+    preamble = []
+    sections = []
+    current_header = None
+    current_body = []
+    in_preamble = True
+
+    for line in text.splitlines(keepends=True):
+        if re.match(r'^\[', line):
+            if in_preamble:
+                in_preamble = False
+                preamble = current_body[:]
+            elif current_header is not None:
+                sections.append((current_header, ''.join(current_body)))
+            current_header = line.rstrip('\r\n')
+            current_body = []
+        else:
+            current_body.append(line)
+
+    if current_header is not None:
+        sections.append((current_header, ''.join(current_body)))
+
+    return ''.join(preamble), sections
+
+
+with open(src_path) as f:
+    src_text = f.read()
+with open(dst_path) as f:
+    dst_text = f.read()
+
+_, src_sections = parse_sections(src_text)
+_, dst_sections = parse_sections(dst_text)
+dst_headers = {h for h, _ in dst_sections}
+
+appended = []
+skipped = []
+
+with open(dst_path, 'a') as out:
+    for header, body in src_sections:
+        if header in dst_headers:
+            skipped.append(header)
+        else:
+            appended.append(header)
+            # Ensure there is a newline before the appended block
+            if dst_text and not dst_text.endswith('\n'):
+                out.write('\n')
+                dst_text += '\n'
+            out.write('\n' + header + '\n' + body)
+            dst_text += '\n' + header + '\n' + body
+
+for h in skipped:
+    print('    [skip]    {}'.format(h))
+for h in appended:
+    print('    [append]  {}'.format(h))
+if not appended:
+    print('    (no new sections — file is up to date)')
+PYEOF
+}
+
+# ── Install / merge config files ──────────────────────────────────────────────
+echo ""
+echo "Installing config files to ${NFC_CONFIG_DIR}/..."
+echo ""
+
+merge_config "${REPO_DIR}/config/nfc_vars.cfg"                 "${NFC_CONFIG_DIR}/nfc_vars.cfg"
+merge_config "${REPO_DIR}/config/nfc_macros.cfg"               "${NFC_CONFIG_DIR}/nfc_macros.cfg"
+merge_config "${REPO_DIR}/config/nfc_gates_spi_rc522.cfg"      "${NFC_CONFIG_DIR}/nfc_gates_spi_rc522.cfg"
+merge_config "${REPO_DIR}/config/nfc_gates_i2c_pn532_pico.cfg" "${NFC_CONFIG_DIR}/nfc_gates_i2c_pn532_pico.cfg"
+merge_config "${REPO_DIR}/config/nfc_gate_i2c_pn532.cfg"       "${NFC_CONFIG_DIR}/nfc_gate_i2c_pn532.cfg"
 
 # ── Summary ───────────────────────────────────────────────────────────────────
 echo ""
@@ -97,25 +176,17 @@ echo "  Python extras (symlinked — auto-updates with git pull):"
 echo "    ${KLIPPER_EXTRAS}/nfc_gate.py  ->  ${REPO_DIR}/klippy/extras/nfc_gate.py"
 echo "    ${KLIPPER_EXTRAS}/nfc_gates    ->  ${REPO_DIR}/klippy/extras/nfc_gates/"
 echo ""
-echo "  Config files copied to:"
-echo "    ${NFC_CONFIG_DIR}/"
-echo "      nfc_vars.cfg                   ← edit this: set spoolman_url"
-echo "      nfc_macros.cfg                 ← do not edit"
-echo "      nfc_gates_spi_rc522.cfg        ← Path A: SPI/RC522 on Pico"
-echo "      nfc_gates_i2c_pn532_pico.cfg   ← Path B: I2C/PN532 on Pico"
-echo "      nfc_gate_i2c_pn532.cfg         ← Path C: I2C/PN532 on EBB42"
+echo "  Config files in ${NFC_CONFIG_DIR}/:"
+echo "    nfc_vars.cfg                   ← configuration guide (comments only)"
+echo "    nfc_macros.cfg                 ← do not edit"
+echo "    nfc_gates_spi_rc522.cfg        ← Path A: SPI/RC522 on Pico"
+echo "    nfc_gates_i2c_pn532_pico.cfg   ← Path B: I2C/PN532 on Pico"
+echo "    nfc_gate_i2c_pn532.cfg         ← Path C: I2C/PN532 on EBB42 — edit this"
 echo ""
-
-if [ -n "${BACKUP_VARS}" ]; then
-    echo "  Previous config backed up to:"
-    echo "    $(dirname "${BACKUP_VARS}")/"
-    echo ""
-fi
-
 echo "Next steps (first install only):"
 echo ""
-echo "  1. Edit ~/printer_data/config/NFC/nfc_vars.cfg"
-echo "     Set spoolman_url to your Spoolman instance URL."
+echo "  1. Edit ~/printer_data/config/NFC/nfc_gate_i2c_pn532.cfg"
+echo "     Set spoolman_url in the [nfc_gate] section at the top of the file."
 echo ""
 echo "  2. Add includes to printer.cfg — pick ONE hardware path:"
 echo ""
@@ -139,4 +210,9 @@ echo "     sudo systemctl restart klipper"
 echo ""
 echo "  4. Add the Moonraker update manager entry to moonraker.conf"
 echo "     (see Readme.md for the block to paste in)"
+echo ""
+echo "  ── Upgrading from a previous install? ────────────────────────────────────"
+echo "  If your nfc_vars.cfg still contains [nfc_gate], move those settings into"
+echo "  the [nfc_gate] section in nfc_gate_i2c_pn532.cfg, then remove [nfc_gate]"
+echo "  from nfc_vars.cfg to avoid duplicate-section errors from Klipper."
 echo ""
