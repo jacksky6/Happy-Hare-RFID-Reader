@@ -241,24 +241,68 @@ class PN532Driver:
     # Initialisation
     # ─────────────────────────────────────────────────────────────────────────
 
-    def _wake_pn532(self, attempts=5):
+    def _wake_pn532(self, attempts=10):
         """
         Wake the PN532 from power-save mode using GetFirmwareVersion.
 
-        Per datasheet: the first I2C transaction after power-on will NACK;
-        this is expected behaviour.  Retry until the chip ACKs or we exhaust
-        all attempts.
+        Two-phase read strategy:
+          1. Send the command, wait, then read 1 status byte.
+             0x01 = chip ready; 0x00 = chip still busy; exception = NACK.
+          2. Only read the full response frame once the status byte is 0x01.
+
+        First attempt uses a longer delay (100 ms) to allow for cold-start.
+        Subsequent attempts use 50 ms.  An additional 30 ms retry gap follows
+        each failed attempt.
 
         Returns True if the chip responded, False if all attempts failed.
         """
         for attempt in range(attempts):
+            # Longer delay on first attempt for cold-start power-on settling
+            wait = 0.100 if attempt == 0 else 0.050
             if self._debug >= 2:
-                logger.debug("nfc_gates: gate %d (PN532) wake attempt %d/%d — "
-                              "sending GetFirmwareVersion",
-                              self._gate, attempt + 1, attempts)
+                logger.debug(
+                    "nfc_gates: gate %d (PN532) wake attempt %d/%d — "
+                    "sending GetFirmwareVersion (post-TX wait=%.0fms)",
+                    self._gate, attempt + 1, attempts, wait * 1000)
             try:
-                self._send([_CMD_GETFIRMWAREVERSION])
-                payload = self._recv(self._release_delay, 0x03, read_len=14)
+                frame = self._build_frame([_CMD_GETFIRMWAREVERSION])
+                if self._debug >= 2:
+                    logger.debug(
+                        "nfc_gates: gate %d (PN532) TX  cmd=0x02  frame=%s",
+                        self._gate, ' '.join('%02X' % b for b in frame))
+                self._i2c.i2c_write(frame)
+                time.sleep(wait)
+
+                # Phase 1: read status byte
+                status_result = self._i2c.i2c_read([], 1)
+                status_byte   = bytearray(status_result['response'])[0] \
+                                if status_result['response'] else 0x00
+                if self._debug >= 2:
+                    logger.debug(
+                        "nfc_gates: gate %d (PN532) wake attempt %d — "
+                        "status byte=0x%02X (%s)",
+                        self._gate, attempt + 1, status_byte,
+                        'READY' if status_byte == 0x01 else 'BUSY/NOT_READY')
+
+                if status_byte != 0x01:
+                    # Chip not ready yet — retry
+                    time.sleep(0.030)
+                    continue
+
+                # Phase 2: read full response frame
+                result = self._i2c.i2c_read([], 14)
+                raw    = bytearray(result['response'])
+                if self._debug >= 2:
+                    logger.debug(
+                        "nfc_gates: gate %d (PN532) wake attempt %d — "
+                        "full response=%s",
+                        self._gate, attempt + 1,
+                        ' '.join('%02X' % b for b in raw))
+
+                # Prepend the status byte we already consumed so _check_frame
+                # sees a complete buffer (STATUS + frame body)
+                full = bytearray([status_byte]) + raw
+                payload = self._check_frame(full, 0x03)
                 if payload is not None and len(payload) >= 4:
                     logger.info(
                         "nfc_gates: gate %d (PN532) wake OK on attempt %d — "
@@ -266,18 +310,17 @@ class PN532Driver:
                         self._gate, attempt + 1,
                         payload[0], payload[1], payload[2])
                     return True
-                # Got a frame but not a valid FW response — keep trying
                 if self._debug >= 2:
                     logger.debug(
                         "nfc_gates: gate %d (PN532) wake attempt %d — "
-                        "no valid FW response, retrying", self._gate, attempt + 1)
+                        "status=READY but frame parse failed, retrying",
+                        self._gate, attempt + 1)
             except Exception as e:
-                # NACK on first transaction is expected — log at debug only
                 level = logger.debug if attempt == 0 else logger.info
-                level("nfc_gates: gate %d (PN532) wake attempt %d NACK "
-                      "(expected on first try): %s",
+                level("nfc_gates: gate %d (PN532) wake attempt %d NACK: %s",
                       self._gate, attempt + 1, e)
-            time.sleep(0.025)
+            time.sleep(0.030)
+
         logger.warning("nfc_gates: gate %d (PN532) failed to wake after "
                         "%d attempts — check wiring and I2C address 0x%02X",
                         self._gate, attempts, self._i2c.i2c_address
