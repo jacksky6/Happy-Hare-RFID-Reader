@@ -241,7 +241,7 @@ class PN532Driver:
     # Initialisation
     # ─────────────────────────────────────────────────────────────────────────
 
-    def _wake_pn532(self, attempts=10):
+    def _wake_pn532(self, attempts=3):
         """
         Wake the PN532 from power-save mode using GetFirmwareVersion.
 
