@@ -1,15 +1,9 @@
 # klippy/extras/nfc_gates/__init__.py
 #
-# EMU NFC Gate Reader — Klipper extras package entry point.
+# EMU NFC Gate Reader — Python package marker.
 #
-# Handles the [nfc_gates] config section (SPI/RC522 or I2C/PN532 path,
-# all readers on a single shared MCU).
+# This directory is the nfc_gates package, imported by the Klipper entry point:
+#   klippy/extras/nfc_gate.py  →  from nfc_gates.NFC_manager import ...
 #
-# For the per-lane I2C/PN532 path (one reader per EBB42 lane board),
-# see the sibling module: klippy/extras/nfc_gate.py
-
-from .NFC_manager import NFCGateManager
-
-
-def load_config(config):
-    return NFCGateManager(config)
+# The [nfc_gate] and [nfc_gate laneN] config sections are handled entirely by
+# nfc_gate.py (singular).  There is no [nfc_gates] config section.
