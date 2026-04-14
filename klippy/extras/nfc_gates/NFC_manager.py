@@ -679,8 +679,9 @@ class NFCGate:
                                        self._debug,
                                        low_level_debug=self._low_level_debug)
         self._state      = GateState(self._gate, self._absent_threshold)
-        self._force_spool_lookup = False
-        self._suppress_next_dispatch_uid = None
+        self._suppress_next_dispatch_uid   = None
+        self._suppress_next_dispatch_spool = None  # paired with uid — suppress only when both match
+        self._hh_seed_spool_id = None   # set on startup from HH gate map; cleared after first match
         self._failed     = False
         self._klipper    = KlipperInterface(self.printer, self.reactor)
         self._polling    = False
@@ -708,6 +709,7 @@ class NFCGate:
             "  NFC_GATE NAME=%s POLL=1    - run one full NFC_Manager poll for this gate" % self._name,
             "  NFC_GATE NAME=%s APPLY=1   - send cached spool to Happy Hare now" % self._name,
             "  NFC_GATE NAME=%s CLEAR_CACHE=1 - clear cached spool lookup, no HH dispatch" % self._name,
+            "  NFC_GATE NAME=%s HH_SYNC=1 SPOOL_ID=<n> - seed lane cache from HH gate map (called by NFC_HH_SYNC_CACHE macro)" % self._name,
             "  NFC_GATE NAME=%s READ=1    - start timer polling" % self._name,
             "  NFC_GATE NAME=%s READ=0    - stop timer polling" % self._name,
         ]
@@ -762,8 +764,8 @@ class NFCGate:
         """Clear cached spool resolution without dispatching a state change."""
         old_spool = self._state.current_spool
         self._state.current_spool = None
-        self._force_spool_lookup = True
-        self._suppress_next_dispatch_uid = self._state.current_uid
+        self._suppress_next_dispatch_uid   = self._state.current_uid
+        self._suppress_next_dispatch_spool = old_spool  # only suppress if spool is also unchanged
         if self._spoolman is not None:
             self._spoolman.clear_cache()
         if hasattr(self._reader, '_clear_current_card'):
@@ -843,7 +845,93 @@ class NFCGate:
         if gcmd.get_int("APPLY", 0):
             self._apply_current_spool(gcmd)
             return
+        if gcmd.get_int("HH_SYNC", 0):
+            self._hh_sync(gcmd)
+            return
         self._cmd_help(gcmd)
+
+    def _seed_cache_from_hh(self, eventtime):
+        """Read Happy Hare's gate map and pre-seed this lane's spool cache.
+
+        Called once from _delayed_init() after the PN532 initialises
+        successfully.  Prevents a spurious _NFC_SPOOL_CHANGED dispatch on the
+        very first poll after a Klipper restart — Happy Hare already knows
+        which spool is in this gate, so we should not re-tell it.
+
+        The seed is one-shot: it is consumed (cleared) on the first
+        EVENT_CHANGED poll result, regardless of whether the spool matches.
+        Mismatches still dispatch normally.
+        """
+        try:
+            mmu = self.printer.lookup_object('mmu', None)
+            if mmu is None:
+                logger.info(
+                    "nfc_gate: [%s] gate %d — HH MMU object not found; "
+                    "skipping startup cache seed", self._name, self._gate)
+                return
+            status        = mmu.get_status(eventtime)
+            gate_spool_id = status.get('gate_spool_id', [])
+            gate_status   = status.get('gate_status', [])
+
+            if self._gate >= len(gate_spool_id):
+                logger.info(
+                    "nfc_gate: [%s] gate %d — gate index exceeds HH map length "
+                    "(%d gates); skipping seed", self._name, self._gate,
+                    len(gate_spool_id))
+                return
+
+            hh_spool = gate_spool_id[self._gate]
+            hh_avail = gate_status[self._gate] if self._gate < len(gate_status) else 0
+
+            try:
+                hh_spool = int(hh_spool)
+            except (TypeError, ValueError):
+                hh_spool = -1
+
+            if hh_spool > 0:
+                self._hh_seed_spool_id = hh_spool
+                logger.info(
+                    "nfc_gate: [%s] gate %d — HH seed: spool_id=%d  "
+                    "gate_status=%s  first poll matching this spool will be "
+                    "absorbed silently (HH already knows)",
+                    self._name, self._gate, hh_spool, hh_avail)
+            else:
+                logger.info(
+                    "nfc_gate: [%s] gate %d — HH reports gate empty/unknown "
+                    "(spool_id=%s); no seed applied",
+                    self._name, self._gate, hh_spool)
+
+        except Exception:
+            logger.exception(
+                "nfc_gate: [%s] gate %d — error reading HH gate map for "
+                "startup cache seed (non-fatal, polling continues)",
+                self._name, self._gate)
+
+    def _hh_sync(self, gcmd):
+        """Receive a spool_id from NFC_HH_SYNC_CACHE and set the lane seed.
+
+        Called by NFC_GATE NAME=<lane> HH_SYNC=1 SPOOL_ID=<n>.
+        The macro reads HH template vars (which GCode macros can access) and
+        passes the resolved spool_id here so Python can update the seed without
+        needing to walk the HH object itself.
+        """
+        spool_id = gcmd.get_int('SPOOL_ID', -1)
+        if spool_id > 0:
+            self._hh_seed_spool_id = spool_id
+            logger.info(
+                "nfc_gate: [%s] gate %d — HH_SYNC: seed set to spool_id=%d",
+                self._name, self._gate, spool_id)
+            gcmd.respond_info(
+                "NFC[%s]: HH seed → spool_id=%d  "
+                "(next poll matching this spool will not re-dispatch to HH)"
+                % (self._name, spool_id))
+        else:
+            self._hh_seed_spool_id = None
+            logger.info(
+                "nfc_gate: [%s] gate %d — HH_SYNC: gate empty/unknown, "
+                "seed cleared", self._name, self._gate)
+            gcmd.respond_info(
+                "NFC[%s]: HH reports gate empty — seed cleared" % self._name)
 
     def _handle_connect(self):
         self._gcode = self.printer.lookup_object('gcode')
@@ -903,6 +991,11 @@ class NFCGate:
             self._failed = True
             logger.error("nfc_gate: [%s] init error: %s", self._name, e)
 
+        # Seed lane cache from Happy Hare's current gate map so the first poll
+        # after restart does not re-dispatch a spool HH already knows about.
+        if not self._failed:
+            self._seed_cache_from_hh(eventtime)
+
         if self._gcode is not None:
             if self._failed:
                 self._gcode.respond_info(
@@ -910,10 +1003,13 @@ class NFCGate:
                     "Run NFC_GATE NAME=%s INIT=1 after fixing."
                     % (self._name, self._name))
             else:
+                seed_note = ("  HH seed: spool_id=%d" % self._hh_seed_spool_id
+                             if self._hh_seed_spool_id is not None
+                             else "  HH reports gate empty")
                 self._gcode.respond_info(
-                    "✅ NFC[%s]: reader ready. "
-                    "%s"
+                    "✅ NFC[%s]: reader ready.%s  %s"
                     % (self._name,
+                       seed_note,
                        "Startup polling is enabled; first poll in %.1fs."
                        % self._startup_poll_delay
                        if self._startup_polling == 1
@@ -975,35 +1071,60 @@ class NFCGate:
                              self._name, self._gate, uid_hex)
 
         if uid_hex is not None:
-            if uid_hex == self._state.current_uid and not self._force_spool_lookup:
-                spool_id = self._state.current_spool
-                if self._debug >= 2:
-                    logger.debug(
-                        "nfc_gate: [%s] gate %d — uid=%s already known, "
-                        "spool_id=%s (skipping Spoolman lookup)",
-                        self._name, self._gate, uid_hex, spool_id)
-            elif self._spoolman is not None:
-                if self._debug >= 2:
-                    logger.debug(
-                        "nfc_gate: [%s] gate %d — uid=%s requires lookup, "
-                        "querying Spoolman", self._name, self._gate, uid_hex)
+            # Always resolve through SpoolmanClient so the (uid, spool_id)
+            # combination is compared against the lane cache on every poll.
+            # SpoolmanClient's own TTL cache keeps this efficient — no HTTP
+            # request is made while the cache entry is fresh.  If the spool_id
+            # in Spoolman changes (re-registration, CLEAR_CACHE, TTL expiry),
+            # process_read will detect the mismatch and dispatch EVENT_CHANGED.
+            if self._spoolman is not None:
                 spool_id = self._spoolman.lookup_spool_by_uid(uid_hex)
-                self._force_spool_lookup = False
                 if self._debug >= 2:
                     logger.debug(
-                        "nfc_gate: [%s] gate %d — Spoolman returned spool_id=%s",
-                        self._name, self._gate, spool_id)
+                        "nfc_gate: [%s] gate %d — uid=%s  Spoolman→spool_id=%s",
+                        self._name, self._gate, uid_hex, spool_id)
             else:
                 spool_id = None
-                self._force_spool_lookup = False
                 if self._debug >= 2:
                     logger.debug(
-                        "nfc_gate: [%s] gate %d — uid=%s, no Spoolman configured",
+                        "nfc_gate: [%s] gate %d — uid=%s  no Spoolman configured",
                         self._name, self._gate, uid_hex)
         else:
             spool_id = None
 
         event = self._state.process_read(uid_hex, spool_id)
+
+        # ── debug=2 compact per-poll trace ───────────────────────────────────
+        # One line per poll: lane, gate, what was read, and what action fired.
+        if self._debug >= 2:
+            if uid_hex is not None:
+                read_str = "tag=%-16s" % uid_hex
+            else:
+                read_str = "no tag  miss=%d/%d" % (
+                    self._state.miss_count, self._state.absent_threshold)
+            if event is None:
+                if uid_hex is not None:
+                    action_str = "quiet  (spool=%s, uid unchanged)" % (
+                        self._state.current_spool,)
+                else:
+                    action_str = "quiet  (waiting, %d more miss(es) until removal)" % (
+                        max(0, self._state.absent_threshold - self._state.miss_count),)
+            else:
+                etype = event[0]
+                if etype == EVENT_CHANGED:
+                    action_str = "CHANGED  →  spool=%s  uid=%s" % (event[3], event[2])
+                elif etype == EVENT_REMOVED:
+                    action_str = "REMOVED  (tag absent for %d consecutive polls)" % (
+                        self._state.absent_threshold,)
+                elif etype == EVENT_UID_ONLY:
+                    action_str = "NO_SPOOL  (uid=%s not registered in Spoolman)" % (
+                        event[2],)
+                else:
+                    action_str = str(etype)
+            logger.debug("nfc_gate: [%s] POLL  gate=%-2d  %-28s  →  %s",
+                         self._name, self._gate, read_str, action_str)
+        # ─────────────────────────────────────────────────────────────────────
+
         if event is not None:
             event_type, gate, uid, spool = event
             if self._debug >= 1:
@@ -1012,23 +1133,63 @@ class NFCGate:
             if (event_type == EVENT_CHANGED and spool is not None
                     and self._spoolman is not None):
                 self._spoolman.update_spool_location(spool, gate)
+
+            # Determine whether to suppress the Happy Hare dispatch.
+            suppress = False
+
+            # ── Startup HH seed match ────────────────────────────────────────
+            # On the first poll after a Klipper restart, if the resolved spool
+            # matches what HH already has in its gate map, silently absorb the
+            # event — the NFC cache is now seeded, but HH does not need to be
+            # told something it already knows.  The seed is always cleared here
+            # so it fires at most once, regardless of match.
+            if self._hh_seed_spool_id is not None:
+                if event_type == EVENT_CHANGED and spool == self._hh_seed_spool_id:
+                    suppress = True
+                    logger.info(
+                        "nfc_gate: [%s] gate %d — startup HH sync: "
+                        "spool=%d matches HH seed; cache seeded silently "
+                        "(no dispatch — HH already knows)",
+                        self._name, gate, spool)
+                elif event_type == EVENT_CHANGED:
+                    logger.info(
+                        "nfc_gate: [%s] gate %d — startup HH sync: "
+                        "resolved spool=%s differs from HH seed=%d; "
+                        "dispatching CHANGED (spool swapped since last restart?)",
+                        self._name, gate, spool, self._hh_seed_spool_id)
+                self._hh_seed_spool_id = None  # one-shot — always clear
+
+            # ── CLEAR_CACHE suppress ─────────────────────────────────────────
+            # Only suppress when the uid AND spool both match the pre-clear
+            # state.  A different spool on the same uid is a real change and
+            # must dispatch — that is exactly the case CLEAR_CACHE is for.
             if (self._suppress_next_dispatch_uid is not None
                     and uid == self._suppress_next_dispatch_uid):
-                logger.info(
-                    "nfc_gate: [%s] gate %d — cache refresh for uid=%s "
-                    "suppressed; no GCode dispatch", self._name, gate, uid)
-                self._suppress_next_dispatch_uid = None
-            else:
+                if spool == self._suppress_next_dispatch_spool:
+                    suppress = True
+                    logger.info(
+                        "nfc_gate: [%s] gate %d — cache refresh for uid=%s "
+                        "spool=%s unchanged; no GCode dispatch",
+                        self._name, gate, uid, spool)
+                else:
+                    logger.info(
+                        "nfc_gate: [%s] gate %d — cache refresh: uid=%s "
+                        "spool changed %s → %s; dispatching CHANGED",
+                        self._name, gate, uid,
+                        self._suppress_next_dispatch_spool, spool)
+                self._suppress_next_dispatch_uid   = None
+                self._suppress_next_dispatch_spool = None
+
+            if not suppress:
                 if self._debug >= 2:
                     logger.debug("nfc_gate: [%s] gate %d — dispatching GCode "
                                  "for event %s", self._name, gate, event_type)
                 self._klipper.dispatch(event_type, gate, uid, spool)
-        elif self._debug >= 2:
-            logger.debug("nfc_gate: [%s] gate %d — no state change  "
-                         "state=%r", self._name, self._gate, self._state)
+
         if (uid_hex is not None and self._suppress_next_dispatch_uid is not None
                 and uid_hex == self._suppress_next_dispatch_uid):
-            self._suppress_next_dispatch_uid = None
+            self._suppress_next_dispatch_uid   = None
+            self._suppress_next_dispatch_spool = None
 
     def status_line(self):
         if self._failed:
@@ -1133,7 +1294,6 @@ class NFCGateManager:
         self._states        = [GateState(i, self._absent_threshold)
                                for i in range(self._gate_count)]
         self._reader_failed = [False] * self._gate_count
-        self._force_spool_lookup = [False] * self._gate_count
         self._suppress_next_dispatch_uid = [None] * self._gate_count
         self._klipper       = KlipperInterface(self.printer, self.reactor)
         self._polling       = False
@@ -1279,14 +1439,11 @@ class NFCGateManager:
                          i, self._states[i].miss_count + 1)
 
         if uid_hex is not None:
-            if uid_hex == self._states[i].current_uid and not self._force_spool_lookup[i]:
-                spool_id = self._states[i].current_spool
-            elif self._spoolman is not None:
+            # Always resolve through SpoolmanClient — see NFCGate._poll comment.
+            if self._spoolman is not None:
                 spool_id = self._spoolman.lookup_spool_by_uid(uid_hex)
-                self._force_spool_lookup[i] = False
             else:
                 spool_id = None
-                self._force_spool_lookup[i] = False
         else:
             spool_id = None
 
@@ -1373,7 +1530,6 @@ class NFCGateManager:
         state = self._states[i]
         old_spool = state.current_spool
         state.current_spool = None
-        self._force_spool_lookup[i] = True
         self._suppress_next_dispatch_uid[i] = state.current_uid
         if self._spoolman is not None:
             self._spoolman.clear_cache()
