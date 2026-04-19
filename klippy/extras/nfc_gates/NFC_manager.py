@@ -703,6 +703,7 @@ class NFCGate:
         self._hh_seed_spool_id   = None  # set on startup from HH gate map; cleared after first match
         self._hh_seed_available  = False  # True only when HH had the gate marked available at seed time
         self._hh_confirmed_spool = None  # last spool HH acknowledged; enables _check_hh_cleared
+        self._hh_load_paused     = False  # True while HH reports filament loaded from this gate
         self._failed     = False
         self._klipper    = KlipperInterface(self.printer, self.reactor)
         self._polling    = False
@@ -1120,7 +1121,51 @@ class NFCGate:
             self._state.miss_count    = 0
             self._hh_confirmed_spool  = None
 
+    def _hh_gate_is_loaded(self):
+        """Return True if filament from this gate is physically in the MMU path.
+
+        Checks that HH's active gate is this gate AND filament_pos > 0
+        (filament is somewhere in the system, not sitting unloaded at the gate).
+        gate_status=1 (available/assigned) is intentionally NOT treated as
+        loaded — a spool sitting in the holder ready to feed should still be
+        scanned so the gate map stays current.
+        """
+        mmu = self.printer.lookup_object('mmu', None)
+        if mmu is None:
+            return False
+        try:
+            status       = mmu.get_status(self.reactor.monotonic())
+            active_gate  = int(status.get('gate', -1) or -1)
+            filament_pos = int(status.get('filament_pos', 0) or 0)
+            return active_gate == self._gate and filament_pos > 0
+        except (TypeError, ValueError):
+            return False
+
     def _poll(self):
+        # Suspend scanning while HH reports filament loaded from this gate.
+        # The spool is in the MMU path and may rotate; the tag may not be
+        # readable.  Miss count is held at zero so removal never fires while
+        # loaded.  Polling resumes automatically on eject or lane exhaustion.
+        if self._hh_gate_is_loaded():
+            if not self._hh_load_paused:
+                self._hh_load_paused = True
+                logger.info(
+                    "nfc_gate: [%s] gate %d — filament loaded in MMU; "
+                    "suspending NFC scan until unloaded",
+                    self._name, self._gate)
+            self._state.miss_count = 0
+            return
+
+        if self._hh_load_paused:
+            self._hh_load_paused    = False
+            self._state.current_uid   = None
+            self._state.current_spool = None
+            self._state.miss_count    = 0
+            self._hh_confirmed_spool  = None
+            logger.info(
+                "nfc_gate: [%s] gate %d — filament unloaded; resuming NFC scan",
+                self._name, self._gate)
+
         self._check_hh_cleared()
         uid_hex = self._reader.read_tag()
 
