@@ -1122,23 +1122,21 @@ class NFCGate:
             self._hh_confirmed_spool  = None
 
     def _hh_gate_is_loaded(self):
-        """Return True if filament from this gate is physically in the MMU path.
+        """Return True when HH has a spool assigned to this gate.
 
-        Checks that HH's active gate is this gate AND filament_pos > 0
-        (filament is somewhere in the system, not sitting unloaded at the gate).
-        gate_status=1 (available/assigned) is intentionally NOT treated as
-        loaded — a spool sitting in the holder ready to feed should still be
-        scanned so the gate map stays current.
+        Once HH knows which spool is in the gate (gate_spool_id > 0), NFC has
+        done its job — no need to keep scanning.  Polling resumes automatically
+        when HH clears the gate (eject, endless-spool exhaustion, manual clear).
         """
         mmu = self.printer.lookup_object('mmu', None)
         if mmu is None:
             return False
         try:
-            status       = mmu.get_status(self.reactor.monotonic())
-            active_gate  = int(status.get('gate', -1) or -1)
-            filament_pos = int(status.get('filament_pos', 0) or 0)
-            return active_gate == self._gate and filament_pos > 0
-        except (TypeError, ValueError):
+            status         = mmu.get_status(self.reactor.monotonic())
+            gate_spool_ids = status.get('gate_spool_id', [])
+            spool_id       = int(gate_spool_ids[self._gate] or -1)
+            return spool_id > 0
+        except (IndexError, TypeError, ValueError):
             return False
 
     def _poll(self):
@@ -1321,22 +1319,24 @@ class NFCGate:
             self._suppress_next_dispatch_spool = None
 
     def _hh_filament_label(self):
-        """Return a short string describing this gate's MMU filament state."""
+        """Return a short string describing this gate's HH spool assignment."""
         mmu = self.printer.lookup_object('mmu', None)
         if mmu is None:
             return "HH: n/a"
         try:
-            status       = mmu.get_status(self.reactor.monotonic())
-            gate_status  = status.get('gate_status', [])
-            active_gate  = int(status.get('gate', -1) or -1)
-            filament_pos = int(status.get('filament_pos', 0) or 0)
-            gstat        = int(gate_status[self._gate] or 0) if self._gate < len(gate_status) else 0
+            status         = mmu.get_status(self.reactor.monotonic())
+            gate_spool_ids = status.get('gate_spool_id', [])
+            gate_status    = status.get('gate_status', [])
+            active_gate    = int(status.get('gate', -1) or -1)
+            filament_pos   = int(status.get('filament_pos', 0) or 0)
+            spool_id       = int(gate_spool_ids[self._gate] or -1)
+            gstat          = int(gate_status[self._gate] or 0) if self._gate < len(gate_status) else 0
         except (IndexError, TypeError, ValueError):
             return "HH: unknown"
         if active_gate == self._gate and filament_pos > 0:
-            return "HH: loaded (pos %d)" % filament_pos
-        if gstat >= 1:
-            return "HH: available"
+            return "HH: spool %d  loading (pos %d)" % (spool_id, filament_pos)
+        if spool_id > 0:
+            return "HH: spool %d  %s" % (spool_id, "available" if gstat >= 1 else "assigned")
         return "HH: empty"
 
     def status_line(self):
