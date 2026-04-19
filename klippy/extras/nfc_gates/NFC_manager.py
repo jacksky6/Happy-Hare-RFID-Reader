@@ -1373,16 +1373,15 @@ class NFCGate:
             poll_state = "not polling"
         hh_label = self._hh_filament_label()
         if self._state.current_spool is not None:
-            return ("  Gate %d  [%s]:  spool %-6d   UID %s   [%s]  [%s]"
-                    % (self._gate, self._name,
+            return ("  Gate %d:  spool %-6d   UID %s   [%s]  [%s]"
+                    % (self._gate,
                        self._state.current_spool, self._state.current_uid,
                        poll_state, hh_label))
         if self._state.current_uid is not None:
-            return ("  Gate %d  [%s]:  tag %s  (UID not in Spoolman)   [%s]  [%s]"
-                    % (self._gate, self._name, self._state.current_uid,
-                       poll_state, hh_label))
-        return ("  Gate %d  [%s]:  empty   [%s]  [%s]"
-                % (self._gate, self._name, poll_state, hh_label))
+            return ("  Gate %d:  tag %s  (UID not in Spoolman)   [%s]  [%s]"
+                    % (self._gate, self._state.current_uid, poll_state, hh_label))
+        return ("  Gate %d:  empty   [%s]  [%s]"
+                % (self._gate, poll_state, hh_label))
 
     def get_status(self, _eventtime=None):
         return {
