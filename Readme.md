@@ -30,10 +30,10 @@ Spool with NFC tag → PN532 on EBB42 → Klipper I2C → Spoolman lookup → Ha
 | 3 | [Setup](docs/i2c-pn532/setup.md) | printer.cfg includes, lane config, first boot |
 | 4 | [Spoolman Integration](docs/shared/spoolman-integration.md) | Create the extra field, register tag UIDs |
 | 5 | [Commands & Macros](docs/shared/klipper-functions.md) | Every GCode command with examples |
-| | [Configuration Reference](docs/shared/configuration.md) | All settings with defaults |
-| | [Troubleshooting](docs/i2c-pn532/troubleshooting.md) | Failure patterns and fixes |
-| | [How It Works](docs/shared/how-it-works.md) | Boot sequence, poll flow, system layers, macro events |
-| | [Expert: Low-Level I2C Debug](docs/shared/expert-low-level-i2c-debugging.md) | Manual PN532 bus commands |
+| 6 | [Configuration Reference](docs/shared/configuration.md) | All settings with defaults |
+| 7 | [Troubleshooting](docs/i2c-pn532/troubleshooting.md) | Failure patterns and fixes |
+| 8 | [How It Works](docs/shared/how-it-works.md) | Boot sequence, poll flow, system layers, macro events |
+| 9 | [Expert: Low-Level I2C Debug](docs/shared/expert-low-level-i2c-debugging.md) | Manual PN532 bus commands |
 
 ---
 
