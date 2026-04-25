@@ -1425,16 +1425,19 @@ class NFCGate:
 
         self._run_jog(self._scan_jog_mm)
         self._scan_mm_total += self._scan_jog_mm
-        logger.warning("NFC Gate[%d] - moved %.1fmm  total %.1fmm / %.1fmm",
-                       self._gate, self._scan_jog_mm,
-                       self._scan_mm_total, self._scan_max_mm)
+        msg = ("NFC Gate[%d] - moved %.1fmm  total %.1fmm / %.1fmm"
+               % (self._gate, self._scan_jog_mm,
+                  self._scan_mm_total, self._scan_max_mm))
+        logger.info(msg)
+        self._console(msg)
         return eventtime + self._scan_interval
 
     def _finish_scan(self):
         self._scan_mode = False
         NFCGate._active_scan_gate = None
-        logger.warning("NFC Gate[%d]: tag found — rewinding %.1fmm",
-                       self._gate, self._scan_mm_total)
+        msg = "NFC Gate[%d]: rewinding %.1fmm" % (self._gate, self._scan_mm_total)
+        logger.info(msg)
+        self._console(msg)
         self._run_rewind()
         self.reactor.update_timer(
             self._poll_timer,
@@ -1443,26 +1446,37 @@ class NFCGate:
     def _rewind_and_exit_scan(self):
         self._scan_mode = False
         NFCGate._active_scan_gate = None
-        logger.warning("NFC Gate[%d]: no tag found — rewinding %.1fmm",
-                       self._gate, self._scan_mm_total)
+        msg = "NFC Gate[%d]: no tag found — rewinding %.1fmm" % (self._gate, self._scan_mm_total)
+        logger.warning(msg)
+        self._console(msg)
         self._run_rewind()
         self.reactor.update_timer(
             self._poll_timer,
             self.reactor.monotonic() + self._poll_interval)
 
+    def _console(self, msg):
+        """Send a message directly to the Klipper console, bypassing the logger."""
+        gcode = self.printer.lookup_object('gcode', None)
+        if gcode is None:
+            return
+        try:
+            gcode.respond_info(msg)
+        except Exception:
+            pass
+
     def _run_jog(self, mm):
         gcode = self.printer.lookup_object('gcode')
         if self._scan_mm_total == 0.0:
-            gcode.run_script("MMU_SELECT GATE=%d\nMMU_TEST_MOVE MOVE=%.2f"
+            gcode.run_script("MMU_SELECT GATE=%d\nMMU_TEST_MOVE MOVE=%.2f QUIET=1"
                              % (self._gate, mm))
         else:
-            gcode.run_script("MMU_TEST_MOVE MOVE=%.2f" % mm)
+            gcode.run_script("MMU_TEST_MOVE MOVE=%.2f QUIET=1" % mm)
 
     def _run_rewind(self):
         if self._scan_mm_total <= 0.0:
             return
         gcode = self.printer.lookup_object('gcode')
-        gcode.run_script("MMU_TEST_MOVE MOVE=%.2f" % -self._scan_mm_total)
+        gcode.run_script("MMU_TEST_MOVE MOVE=%.2f QUIET=1" % -self._scan_mm_total)
 
     # ─────────────────────────────────────────────────────────────────────────
 
