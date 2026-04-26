@@ -152,30 +152,32 @@ class MockPrinter:
 
 
 def _make_gate(gate=0, scan_jog_mm=50.0, scan_max_mm=200.0,
-               scan_interval=2.0, scan_enabled=True):
+               scan_interval=2.0, scan_poll_interval=0.5, scan_enabled=True):
     """Build a minimal NFCGate with scan-jog state, bypassing __init__.
 
     Uses object.__new__ to skip Klipper config/I2C setup, then manually
     populates every instance variable that the scan-jog methods touch.
     """
     g = object.__new__(NFCGate)
-    g._name             = 'test'
-    g._gate             = gate
-    g._debug            = 0
-    g._failed           = False
-    g._polling          = True
-    g._poll_interval    = 30.0
-    g._scan_jog_mm      = scan_jog_mm
-    g._scan_max_mm      = scan_max_mm
-    g._scan_interval    = scan_interval
-    g._scan_enabled     = scan_enabled
-    g._scan_mode        = False
-    g._scan_mm_total    = 0.0
-    g._scan_timer       = None
-    g._prev_gate_status = -1
-    g.reactor           = MockReactor()
-    g.printer           = MockPrinter()
-    g._poll_timer       = g.reactor.register_timer(lambda e: g.reactor.NEVER)
+    g._name              = 'test'
+    g._gate              = gate
+    g._debug             = 0
+    g._failed            = False
+    g._polling           = True
+    g._poll_interval     = 30.0
+    g._scan_jog_mm       = scan_jog_mm
+    g._scan_max_mm       = scan_max_mm
+    g._scan_interval     = scan_interval
+    g._scan_poll_interval = scan_poll_interval
+    g._scan_enabled      = scan_enabled
+    g._scan_mode         = False
+    g._scan_mm_total     = 0.0
+    g._scan_next_jog_time = 0.0
+    g._scan_timer        = None
+    g._prev_gate_status  = -1
+    g.reactor            = MockReactor()
+    g.printer            = MockPrinter()
+    g._poll_timer        = g.reactor.register_timer(lambda e: g.reactor.NEVER)
     NFCGate._active_scan_gate = None   # reset class-level lock before every test
     return g
 
@@ -295,10 +297,11 @@ def test_scan_step_tag_found_exits_loop():
     assert finished, "_finish_scan was not called"
     assert result == g.reactor.NEVER
 
-def test_scan_step_no_tag_jogs_and_reschedules():
-    """_poll() returning False issues a jog and reschedules the timer."""
-    g = _make_gate(scan_jog_mm=25.0, scan_interval=1.5)
+def test_scan_step_no_tag_jogs_on_first_tick():
+    """When jog time has elapsed, a jog fires and timer reschedules at poll_interval."""
+    g = _make_gate(scan_jog_mm=25.0, scan_interval=2.0, scan_poll_interval=0.5)
     g._scan_mode = True
+    g._scan_next_jog_time = 100.0   # now == monotonic (100.0) so jog is due
     g.printer.set_print_state('standby')
     jogged = []
     g._poll    = lambda: False
@@ -306,19 +309,36 @@ def test_scan_step_no_tag_jogs_and_reschedules():
     result = g._scan_step_event(100.0)
     assert jogged == [25.0], f"Expected jog of 25mm, got {jogged}"
     assert g._scan_mm_total == 25.0
-    assert result == 101.5
+    assert result == pytest_approx(100.5)   # monotonic(100) + poll_interval(0.5)
 
-def test_scan_mm_accumulates_over_steps():
-    """Each jog step adds scan_jog_mm to _scan_mm_total."""
-    g = _make_gate(scan_jog_mm=30.0, scan_max_mm=500.0)
+def test_scan_step_no_jog_before_interval():
+    """When jog interval has not elapsed, only poll fires — no jog."""
+    g = _make_gate(scan_jog_mm=25.0, scan_interval=2.0, scan_poll_interval=0.5)
     g._scan_mode = True
+    g._scan_next_jog_time = 102.0   # future — jog not yet due
+    g.printer.set_print_state('standby')
+    jogged = []
+    g._poll    = lambda: False
+    g._run_jog = lambda mm: jogged.append(mm)
+    g._scan_step_event(100.0)
+    assert jogged == [], "Jog fired before interval elapsed"
+    assert g._scan_mm_total == 0.0
+
+def test_scan_mm_accumulates_over_jog_steps():
+    """scan_mm_total grows only when a jog fires, not on every poll tick."""
+    g = _make_gate(scan_jog_mm=30.0, scan_max_mm=500.0,
+                   scan_interval=2.0, scan_poll_interval=0.5)
+    g._scan_mode = True
+    g._scan_next_jog_time = 100.0
     g.printer.set_print_state('standby')
     g._poll    = lambda: False
     g._run_jog = lambda mm: None
+    # First step — jog due
     g._scan_step_event(100.0)
-    g._scan_step_event(102.0)
-    g._scan_step_event(104.0)
-    assert g._scan_mm_total == 90.0
+    assert g._scan_mm_total == 30.0
+    # Second step — jog not yet due (next due at 100+2=102, monotonic is still 100)
+    g._scan_step_event(100.5)
+    assert g._scan_mm_total == 30.0   # no second jog
 
 def test_scan_step_max_mm_rewinds_and_exits():
     """scan_mm_total >= scan_max_mm calls _rewind_and_exit_scan."""
@@ -354,7 +374,7 @@ def test_run_jog_gcode_content():
     assert len(scripts) == 1
     assert 'MMU_SELECT GATE=2' in scripts[0]
     assert 'MMU_TEST_MOVE MOVE=37.50' in scripts[0]
-    assert 'M400' in scripts[0]
+    assert 'M400' not in scripts[0]   # jog is non-blocking
 
 def test_run_jog_no_select_on_subsequent_steps():
     """After the first jog, MMU_SELECT must not be re-issued."""
@@ -377,7 +397,6 @@ def test_run_rewind_gcode_content():
     scripts = g.printer.gcode_scripts
     assert len(scripts) == 1
     assert 'MMU_TEST_MOVE MOVE=-100.00' in scripts[0]
-    assert 'M400' in scripts[0]
     assert 'MMU_UNLOAD' not in scripts[0]
 
 def test_rewind_skipped_when_nothing_jogged():

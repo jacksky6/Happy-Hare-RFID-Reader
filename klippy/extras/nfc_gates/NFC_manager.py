@@ -591,6 +591,8 @@ class NFCGateDefaults:
                                                    minval=10.0, maxval=5000.0)
         self.scan_interval      = config.getfloat('scan_interval', 2.0,
                                                    minval=0.5, maxval=60.0)
+        self.scan_poll_interval = config.getfloat('scan_poll_interval', 0.5,
+                                                   minval=0.1, maxval=5.0)
         self.scan_enabled       = config.getboolean('scan_enabled', True)
 
         self._printer = config.get_printer()
@@ -734,11 +736,15 @@ class NFCGate:
         self._scan_interval = config.getfloat('scan_interval',
                                                d.scan_interval if d else 2.0,
                                                minval=0.5, maxval=60.0)
+        self._scan_poll_interval = config.getfloat('scan_poll_interval',
+                                                    d.scan_poll_interval if d else 0.5,
+                                                    minval=0.1, maxval=5.0)
         self._scan_enabled  = config.getboolean('scan_enabled',
                                                  d.scan_enabled if d else True)
         self._scan_timer        = None
         self._scan_mode         = False
         self._scan_mm_total     = 0.0
+        self._scan_next_jog_time = 0.0  # monotonic timestamp — jog fires when now >= this
         self._prev_gate_status  = -1   # -1 = unknown; prevents false trigger on cold start
         self._scan_pending      = False  # armed on 0→1 edge; fires when HH confirms idle
 
@@ -1467,6 +1473,7 @@ class NFCGate:
         NFCGate._active_scan_gate = self._gate
         self._scan_mode          = True
         self._scan_mm_total      = 0.0
+        self._scan_next_jog_time = self.reactor.monotonic()  # fire first jog on first poll tick
         self._hh_seed_spool_id   = None  # seed irrelevant during scan-jog
         self._hh_seed_available  = False
         self._scan_timer    = self.reactor.register_timer(
@@ -1475,9 +1482,10 @@ class NFCGate:
         if self._debug >= 3:
             logger.info(
                 "nfc_gate: [%s] gate %d scan mode started — "
-                "step=%.1fmm max=%.1fmm interval=%.1fs",
+                "step=%.1fmm max=%.1fmm jog_interval=%.1fs poll_interval=%.1fs",
                 self._name, self._gate,
-                self._scan_jog_mm, self._scan_max_mm, self._scan_interval)
+                self._scan_jog_mm, self._scan_max_mm,
+                self._scan_interval, self._scan_poll_interval)
 
     def _scan_step_event(self, eventtime):
         if not self._scan_mode:
@@ -1490,6 +1498,9 @@ class NFCGate:
             self._rewind_and_exit_scan()
             return self.reactor.NEVER
 
+        # Poll on every tick — reads happen at scan_poll_interval regardless of
+        # whether a jog is in progress.  The jog is non-blocking (no M400) so
+        # the reactor is free to fire this timer while the stepper is moving.
         try:
             tag_found = self._poll()
         except Exception:
@@ -1507,19 +1518,21 @@ class NFCGate:
             self._rewind_and_exit_scan()
             return self.reactor.NEVER
 
-        self._run_jog(self._scan_jog_mm)
-        self._scan_mm_total += self._scan_jog_mm
-        msg = ("NFC Gate[%d] - moved %.1fmm  total %.1fmm / %.1fmm"
-               % (self._gate, self._scan_jog_mm,
-                  self._scan_mm_total, self._scan_max_mm))
-        logger.info(msg)
-        self._console(msg)
-        # Schedule next read relative to now (jog-complete), not eventtime
-        # (step-start).  _run_jog blocks until the move is physically done, so
-        # monotonic() here is the true jog-end timestamp.  Using eventtime would
-        # shrink the settle window by however long the jog took, potentially
-        # firing the NFC read while the spool is still decelerating.
-        return self.reactor.monotonic() + self._scan_interval
+        # Issue a jog only when the jog interval has elapsed since the last one.
+        # This decouples jog cadence (scan_interval) from poll cadence
+        # (scan_poll_interval), allowing multiple reads per jog step.
+        now = self.reactor.monotonic()
+        if now >= self._scan_next_jog_time:
+            self._run_jog(self._scan_jog_mm)
+            self._scan_mm_total += self._scan_jog_mm
+            self._scan_next_jog_time = now + self._scan_interval
+            msg = ("NFC Gate[%d] - moved %.1fmm  total %.1fmm / %.1fmm"
+                   % (self._gate, self._scan_jog_mm,
+                      self._scan_mm_total, self._scan_max_mm))
+            logger.info(msg)
+            self._console(msg)
+
+        return self.reactor.monotonic() + self._scan_poll_interval
 
     def _finish_scan(self):
         self._scan_mode = False
@@ -1555,17 +1568,15 @@ class NFCGate:
 
     def _run_jog(self, mm):
         gcode = self.printer.lookup_object('gcode')
-        # M400 (wait for moves) is appended so gcode.run_script() does not
-        # return until the stepper has physically stopped.  Without it,
-        # run_script returns as soon as the move is queued and the scan_interval
-        # settle timer starts while the spool is still moving.
+        # No M400 — jog is intentionally non-blocking so the reactor remains
+        # free to fire the poll timer while the stepper is moving.
         # MMU_SELECT is issued only on the first jog (scan_mm_total == 0) to
         # establish gate context; subsequent jogs reuse the active selection.
         if self._scan_mm_total == 0.0:
-            gcode.run_script("MMU_SELECT GATE=%d\nMMU_TEST_MOVE MOVE=%.2f QUIET=1\nM400"
+            gcode.run_script("MMU_SELECT GATE=%d\nMMU_TEST_MOVE MOVE=%.2f QUIET=1"
                              % (self._gate, mm))
         else:
-            gcode.run_script("MMU_TEST_MOVE MOVE=%.2f QUIET=1\nM400" % mm)
+            gcode.run_script("MMU_TEST_MOVE MOVE=%.2f QUIET=1" % mm)
 
     def _run_rewind(self):
         if self._scan_mm_total <= 0.0:
