@@ -56,8 +56,7 @@ def get_speed(gate):
     """Return gear_short_move_speed from Happy Hare, or 80 mm/s as fallback."""
     mmu = gate.printer.lookup_object('mmu', None)
     if mmu is not None:
-        speed = getattr(mmu,'gear_from_spool_speed', None)
-        #speed = getattr(mmu, 'gear_short_move_speed', None)
+        speed = getattr(mmu, 'gear_short_move_speed', None)
         if speed is not None:
             try:
                 speed = float(speed)
@@ -97,6 +96,7 @@ def start(gate):
     gate._scan_next_chunk_time = gate.reactor.monotonic()
     gate._hh_seed_spool_id = None
     gate._hh_seed_available = False
+    gate._scan_found_event = None
 
     gate._scan_timer = gate.reactor.register_timer(
         gate._scan_step_event,
@@ -167,6 +167,11 @@ def finish(gate):
     logger.info(msg)
     gate._console(msg)
     gate._run_rewind()
+    # Filament is back at the gate — dispatch the event that was suppressed during the jog.
+    if gate._scan_found_event is not None:
+        event_type, g, uid, spool = gate._scan_found_event
+        gate._scan_found_event = None
+        gate._klipper.dispatch(event_type, g, uid, spool)
     gate._resume_poll_after_rewind()
 
 

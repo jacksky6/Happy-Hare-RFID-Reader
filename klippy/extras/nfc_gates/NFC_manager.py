@@ -415,6 +415,7 @@ class NFCGate:
         self._scan_mm_total        = 0.0
         self._scan_next_chunk_time = 0.0
         self._scan_idle_ready_time = 0.0
+        self._scan_found_event     = None  # cached event suppressed during jog; dispatched after rewind
         self._prev_gate_status     = -1   # -1 = unknown; prevents false trigger on cold start
         self._scan_pending      = False  # armed on 0→1 edge; fires when HH confirms idle
 
@@ -1062,6 +1063,14 @@ class NFCGate:
                     logger.info(
                         "nfc_gate: [%s] gate %d — %s detected during print; "
                         "Spoolman and HH dispatch suppressed",
+                        self._name, gate, event_type)
+            elif self._scan_mode:
+                # Filament is moving — cache the event and dispatch after rewind.
+                self._scan_found_event = (event_type, gate, uid, spool)
+                if self._debug >= 3:
+                    logger.info(
+                        "nfc_gate: [%s] gate %d — %s detected during scan-jog; "
+                        "dispatch deferred until rewind complete",
                         self._name, gate, event_type)
             else:
                 if self._spoolman is not None:
