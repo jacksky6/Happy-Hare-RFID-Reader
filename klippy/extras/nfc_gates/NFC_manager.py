@@ -76,6 +76,19 @@ def _get_console_config(config, default_enabled=False, default_level='warning'):
 
 
 
+class _BusDefaultConfig:
+    """Wraps a Klipper ConfigWrapper to supply an inherited default for i2c_bus."""
+    def __init__(self, config, default_bus):
+        self._cfg = config
+        self._default_bus = default_bus
+    def get(self, key, default=None):
+        if key == 'i2c_bus':
+            return self._cfg.get(key, self._default_bus if default is None else default)
+        return self._cfg.get(key, default)
+    def __getattr__(self, name):
+        return getattr(self._cfg, name)
+
+
 # ─────────────────────────────────────────────────────────────────────────────
 # GateState — per-gate debounce state machine
 # ─────────────────────────────────────────────────────────────────────────────
@@ -259,6 +272,7 @@ class NFCGateDefaults:
         self.low_level_debug    = pn532_driver.get_low_level_debug(config)
         self.i2c_address        = config.getint('i2c_address', 0x24,
                                                  minval=0, maxval=127)
+        self.i2c_bus            = config.get('i2c_bus', None)
         self.scan_jog_mm        = config.getfloat('scan_jog_mm', 50.0,
                                                    minval=1.0, maxval=500.0)
         self.scan_poll_interval = config.getfloat('scan_poll_interval', 0.1,
@@ -377,9 +391,11 @@ class NFCGate:
                     self._name, self._name)
 
         default_i2c_addr = d.i2c_address if d else 0x24
-        i2c = bus_module.MCU_I2C_from_config(config,
-                                              default_addr=default_i2c_addr,
-                                              default_speed=100000)
+        default_i2c_bus  = d.i2c_bus if d else None
+        i2c = bus_module.MCU_I2C_from_config(
+            _BusDefaultConfig(config, default_i2c_bus),
+            default_addr=default_i2c_addr,
+            default_speed=100000)
 
         self._reader     = PN532Driver(i2c, self._gate,
                                        transceive_delay, crc_delay,
