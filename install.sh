@@ -9,7 +9,7 @@
 #        nfc_gate.py   — entry point for [nfc_gate laneN]
 #        nfc_gates/    — shared implementation package
 #
-#   2. Installs config files into ~/printer_data/config/NFC/ using a
+#   2. Installs config files into ~/printer_data/config/nfc/ using a
 #      non-destructive merge strategy:
 #        - If a file does not exist yet, it is copied from the repo template.
 #        - If a file already exists, only sections that are present in the
@@ -27,7 +27,7 @@ set -e
 REPO_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 KLIPPER_EXTRAS="${HOME}/klipper/klippy/extras"
 PRINTER_CONFIG="${HOME}/printer_data/config"
-NFC_CONFIG_DIR="${PRINTER_CONFIG}/NFC"
+NFC_CONFIG_DIR="${PRINTER_CONFIG}/nfc"
 
 # ── Verify Klipper is present ─────────────────────────────────────────────────
 if [ ! -d "${KLIPPER_EXTRAS}" ]; then
@@ -166,11 +166,11 @@ if not appended:
 PYEOF
 }
 
-# ── nfc_vars.cfg migrations ──────────────────────────────────────────────────
+# ── nfc_reader.cfg migrations ──────────────────────────────────────────────────
 #
 # merge_config intentionally does not overwrite existing sections.  When a key
 # is removed or added inside [nfc_gate], handle that as a small migration here.
-migrate_nfc_vars() {
+migrate_nfc_reader() {
     local dst="$1"
     local name
     name="$(basename "${dst}")"
@@ -272,10 +272,38 @@ echo ""
 echo "Installing config files to ${NFC_CONFIG_DIR}/..."
 echo ""
 
-merge_config "${REPO_DIR}/config/nfc_vars.cfg"   "${NFC_CONFIG_DIR}/nfc_vars.cfg"
-migrate_nfc_vars "${NFC_CONFIG_DIR}/nfc_vars.cfg"
+merge_config "${REPO_DIR}/config/nfc_reader.cfg"   "${NFC_CONFIG_DIR}/nfc_reader.cfg"
+migrate_nfc_reader "${NFC_CONFIG_DIR}/nfc_reader.cfg"
 merge_config "${REPO_DIR}/config/nfc_macros.cfg" "${NFC_CONFIG_DIR}/nfc_macros.cfg"
-merge_config "${REPO_DIR}/config/pn532_i2C.cfg"  "${NFC_CONFIG_DIR}/pn532_i2C.cfg"
+merge_config "${REPO_DIR}/config/nfc_reader_hw.cfg"  "${NFC_CONFIG_DIR}/nfc_reader_hw.cfg"
+
+# ── Moonraker update_manager ──────────────────────────────────────────────────
+#
+# Append [update_manager emu_nfc_reader] to moonraker.conf if not already present.
+# The section is identical every install so idempotency is a simple grep check.
+#
+MOONRAKER_CONF="${PRINTER_CONFIG}/moonraker.conf"
+MOONRAKER_SECTION="[update_manager emu_nfc_reader]"
+
+if [ ! -f "${MOONRAKER_CONF}" ]; then
+    echo "  [skip]   moonraker.conf not found at ${MOONRAKER_CONF} — add update_manager manually"
+elif grep -qF "${MOONRAKER_SECTION}" "${MOONRAKER_CONF}"; then
+    echo "  [skip]   moonraker.conf already has ${MOONRAKER_SECTION}"
+else
+    ORIGIN="$(git -C "${REPO_DIR}" remote get-url origin 2>/dev/null || echo 'https://github.com/YOUR_USERNAME/NFC-Reader.git')"
+    cat >> "${MOONRAKER_CONF}" <<MOONRAKER
+
+${MOONRAKER_SECTION}
+type:             git_repo
+path:             ${REPO_DIR}
+origin:           ${ORIGIN}
+primary_branch:   main
+managed_services: klipper
+install_script:   install.sh
+info_tags:        desc=EMU NFC Gate Reader for Happy Hare
+MOONRAKER
+    echo "  [added]  ${MOONRAKER_SECTION} → ${MOONRAKER_CONF}"
+fi
 
 # ── Summary ───────────────────────────────────────────────────────────────────
 echo ""
@@ -286,25 +314,25 @@ echo "    ${KLIPPER_EXTRAS}/nfc_gate.py  ->  ${REPO_DIR}/klippy/extras/nfc_gate.
 echo "    ${KLIPPER_EXTRAS}/nfc_gates    ->  ${REPO_DIR}/klippy/extras/nfc_gates/"
 echo ""
 echo "  Config files in ${NFC_CONFIG_DIR}/:"
-echo "    nfc_vars.cfg   ← user settings (Spoolman URL, poll interval, debug)"
+echo "    nfc_reader.cfg   ← user settings (Spoolman URL, poll interval, debug)"
 echo "    nfc_macros.cfg ← Happy Hare handoff macros"
-echo "    pn532_i2C.cfg  ← PN532 over I2C on lane boards"
+echo "    nfc_reader_hw.cfg  ← hardware layout (one [nfc_gate laneN] per physical reader)"
 echo ""
 echo "Next steps (first install only):"
 echo ""
-echo "  1. Edit ~/printer_data/config/NFC/nfc_vars.cfg"
+echo "  1. Edit ~/printer_data/config/nfc/nfc_reader.cfg"
 echo "     Set spoolman_url to auto or to your Spoolman instance URL."
 echo ""
 echo "  2. Add includes to printer.cfg:"
-echo "       [include NFC/nfc_vars.cfg]"
-echo "       [include NFC/nfc_macros.cfg]"
-echo "       [include NFC/pn532_i2C.cfg]"
+echo "       [include nfc/nfc_reader.cfg]"
+echo "       [include nfc/nfc_macros.cfg]"
+echo "       [include nfc/nfc_reader_hw.cfg]"
 echo ""
 echo "  3. Restart Klipper:"
 echo "     sudo systemctl restart klipper"
 echo ""
 echo "  4. Update and flash Klipper on each lane MCU / EBB42 board used by NFC."
 echo ""
-echo "  5. Add the Moonraker update manager entry to moonraker.conf"
-echo "     (see Readme.md for the block to paste in)"
+echo "  5. Moonraker update_manager — added automatically by this script."
+echo "     If moonraker.conf was not found, add [update_manager emu_nfc_reader] manually."
 echo ""

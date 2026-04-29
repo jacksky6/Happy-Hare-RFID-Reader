@@ -75,9 +75,9 @@ _stub('nfc_gates.spoolman_client', SpoolmanClient=_MockSpoolmanClient)
 
 # Manager tests install different dependency stubs; import a fresh manager copy
 # so pytest collection order cannot leak stubs between files.
-sys.modules.pop('nfc_gates.NFC_manager', None)
+sys.modules.pop('nfc_gates.nfc_manager', None)
 
-from nfc_gates.NFC_manager import GateState, NFCGate
+from nfc_gates.nfc_manager import GateState, NFCGate
 
 
 # ── Test doubles ──────────────────────────────────────────────────────────────
@@ -327,7 +327,7 @@ def test_load_transition_waits_for_idle_settle_before_scan():
     assert g._scan_mode
     assert NFCGate._active_scan_gate == 0
     assert g.printer._gcode.responses[-1].startswith(
-        '🔍 NFC Gate[0]: starting scan-jog (max=')
+        '🔍 NFC[0]: starting scan-jog (max=')
     assert result == g.reactor.NEVER
 
 def test_no_trigger_while_printing():
@@ -371,7 +371,7 @@ def test_scan_lock_defers_pending_trigger_for_three_seconds():
 
     assert g._scan_mode
     assert g.printer._gcode.responses[-1].startswith(
-        '🔍 NFC Gate[2]: starting scan-jog (max=')
+        '🔍 NFC[2]: starting scan-jog (max=')
     assert result == g.reactor.NEVER
 
 def test_scan_disabled_skips_all_detection():
@@ -592,7 +592,7 @@ def test_manual_jog_success_message_has_readable_spacing():
 
     assert g._scan_mode
     assert gcmd.responses[-1].startswith(
-        '🔍 NFC_GATE[test]: scan-jog started for gate 3 (max=')
+        '🔍 NFC[test]: scan-jog started for gate 3 (max=')
 
 def test_automatic_jog_blocked_by_unsafe_lane():
     g = _make_gate()

@@ -60,9 +60,9 @@ _stub('nfc_gates.spoolman_client', SpoolmanClient=_MockSpoolmanClient)
 
 # Manager tests install different dependency stubs; import a fresh manager copy
 # so pytest collection order cannot leak stubs between files.
-sys.modules.pop('nfc_gates.NFC_manager', None)
+sys.modules.pop('nfc_gates.nfc_manager', None)
 
-from nfc_gates.NFC_manager import NFCGateDefaults
+from nfc_gates.nfc_manager import NFCGateDefaults
 
 
 class _MockGCode:

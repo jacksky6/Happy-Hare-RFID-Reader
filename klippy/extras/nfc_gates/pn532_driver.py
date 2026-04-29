@@ -234,8 +234,8 @@ class _PN532Base:
         """Send a command frame and return the parsed response payload."""
         self._send(cmd_and_params)
         if not self._read_ack(timeout=min(max(timeout, 0.050), 1.000)):
-            if self._debug >= 2:
-                log_warning("_transceive: gate %d (%s) no valid ACK for "
+            if self._debug >= 3:
+                logger.info("_transceive: gate %d (%s) no valid ACK for "
                             "cmd=0x%02X", self._gate, self._transport_name,
                             cmd_and_params[0])
             return None
@@ -648,7 +648,7 @@ class _PN532Base:
 
             return uid_hex
         except Exception as e:
-            if self._debug >= 2:
+            if self._debug >= 3:
                 logger.info("read_tag: gate %d (%s) error "
                             "(tag removed mid-scan?): %s\n%s",
                             self._gate, self._transport_name,
@@ -1185,7 +1185,7 @@ class PN532SPIDriver(_PN532Base):
 
 
 # =============================================================================
-# NFC_GATE low-level debug command helpers
+# NFC low-level debug command helpers
 # =============================================================================
 
 def get_low_level_debug(config, default=False):
@@ -1255,7 +1255,7 @@ def low_level_debug_help_lines(command_base):
 
 
 def _ll_response(gcmd, label, message):
-    gcmd.respond_info("NFC_GATE[%s]: %s" % (label, message))
+    gcmd.respond_info("NFC[%s]: %s" % (label, message))
 
 
 def _ll_next(gcmd, label, command_base, next_args):

@@ -1,4 +1,4 @@
-# PR - 100 first integration
+# Design: Scan-Jog Blocking and Happy Hare Integration
 
 ## Overview
 
@@ -21,10 +21,10 @@ This is a requirements, design, and pseudocode document only. It does not implem
    - or lane is parked at the gate
 3. If any lane is not clearly empty or parked, scan-jog must be blocked.
 4. This blocking behavior must apply to:
-   - manual jog via `NFC_GATE ... JOG_SCAN=1`
+   - manual jog via `NFC GATE=N JOG_SCAN=1`
    - automatic jog triggered after Happy Hare reports a lane load
 5. The scan max distance must come from Happy Hare's saved Bowden calibration for the current lane.
-6. The NFC-side `scan_max_mm` parameter must no longer be required in `config/nfc_vars.cfg`.
+6. The NFC-side `scan_max_mm` parameter must no longer be required in `config/nfc_reader.cfg`.
 7. If the MMU vars file, Bowden-length variable, or current lane index cannot be resolved, scan-jog must fail closed and report a clear reason.
 
 ## Current system
@@ -32,11 +32,11 @@ This is a requirements, design, and pseudocode document only. It does not implem
 ### Current scan-jog entry points
 
 - Manual scan-jog enters through `klippy/extras/nfc_gates/scan_jog.py` in `manual_jog_scan()`.
-- Automatic scan-jog enters through `klippy/extras/nfc_gates/NFC_manager.py` in `_poll_timer_event()` when Happy Hare reports a `0 -> 1` gate-state transition and the MMU is idle.
+- Automatic scan-jog enters through `klippy/extras/nfc_gates/nfc_manager.py` in `_poll_timer_event()` when Happy Hare reports a `0 -> 1` gate-state transition and the MMU is idle.
 
 ### Current NFC config
 
-`config/nfc_vars.cfg` currently defines:
+`config/nfc_reader.cfg` currently defines:
 
 - `scan_jog_mm`
 - `scan_max_mm`
@@ -175,9 +175,9 @@ Planned additions:
 Purpose:
 
 - keep Happy Hare status parsing in one place
-- avoid duplicating state interpretation inside `scan_jog.py` and `NFC_manager.py`
+- avoid duplicating state interpretation inside `scan_jog.py` and `nfc_manager.py`
 
-### `klippy/extras/nfc_gates/NFC_manager.py`
+### `klippy/extras/nfc_gates/nfc_manager.py`
 
 Update configuration and gate object state.
 
@@ -225,7 +225,7 @@ Planned changes:
     - remaining distance
     - console and log messages
 
-### `config/nfc_vars.cfg`
+### `config/nfc_reader.cfg`
 
 Remove:
 

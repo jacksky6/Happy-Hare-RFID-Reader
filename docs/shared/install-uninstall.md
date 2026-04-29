@@ -9,7 +9,7 @@
 The installer creates **symlinks** — it does not copy Python files into the Klipper directory. This means:
 
 - Updating is just `git pull` — the new code is live immediately, no file copy needed
-- Config files in `~/printer_data/config/NFC/` are yours — the installer never overwrites sections you have already edited
+- Config files in `~/printer_data/config/nfc/` are yours — the installer never overwrites sections you have already edited
 - Running `bash install.sh` again after an update is always safe
 
 **What gets created:**
@@ -17,9 +17,9 @@ The installer creates **symlinks** — it does not copy Python files into the Kl
 ```
 ~/klipper/klippy/extras/nfc_gate.py    →  symlink → repo/klippy/extras/nfc_gate.py
 ~/klipper/klippy/extras/nfc_gates/     →  symlink → repo/klippy/extras/nfc_gates/
-~/printer_data/config/NFC/nfc_vars.cfg
-~/printer_data/config/NFC/nfc_macros.cfg
-~/printer_data/config/NFC/pn532_i2C.cfg
+~/printer_data/config/nfc/nfc_reader.cfg
+~/printer_data/config/nfc/nfc_macros.cfg
+~/printer_data/config/nfc/nfc_reader_hw.cfg
 ```
 
 Config files use a non-destructive merge: if a section already exists in your file, it is left alone. Only missing sections are appended.
@@ -61,16 +61,16 @@ The installer prints what it creates. If it cannot find the Klipper extras direc
 Open `~/printer_data/config/printer.cfg` and add these three lines **in this exact order**:
 
 ```ini
-[include NFC/nfc_vars.cfg]
+[include NFC/nfc_reader.cfg]
 [include NFC/nfc_macros.cfg]
-[include NFC/pn532_i2C.cfg]
+[include NFC/nfc_reader_hw.cfg]
 ```
 
-Order is required. `nfc_vars.cfg` defines the base `[nfc_gate]` section that each lane section inherits from. Including the lane file first causes a Klipper startup error.
+Order is required. `nfc_reader.cfg` defines the base `[nfc_gate]` section that each lane section inherits from. Including the lane file first causes a Klipper startup error.
 
 ### Step 5 — Configure Spoolman
 
-Edit `~/printer_data/config/NFC/nfc_vars.cfg`:
+Edit `~/printer_data/config/nfc/nfc_reader.cfg`:
 
 ```ini
 [nfc_gate]
@@ -88,7 +88,7 @@ See [Spoolman Integration](spoolman-integration.md) for how to create the extra 
 
 ### Step 6 — Configure Lane Hardware
 
-Edit `~/printer_data/config/NFC/pn532_i2C.cfg`. The default file has four lanes — adjust the MCU names and gate numbers to match your Happy Hare setup:
+Edit `~/printer_data/config/nfc/nfc_reader_hw.cfg`. The default file has four lanes — adjust the MCU names and gate numbers to match your Happy Hare setup:
 
 ```ini
 [nfc_gate lane0]
@@ -108,7 +108,7 @@ sudo systemctl restart klipper
 ```
 
 ```gcode
-NFC_GATE_STATUS
+NFC_STATUS
 ```
 
 Expected output with no tags loaded:
@@ -175,16 +175,16 @@ The uninstaller:
 1. Removes the `nfc_gate.py` symlink from Klipper extras
 2. Removes the `nfc_gates/` symlink from Klipper extras
 3. Removes legacy `~/pn532_scan.py` if an older installer placed it there
-4. Moves `~/printer_data/config/NFC/` to `NFC_removed_<timestamp>/` (your config is preserved, not deleted)
+4. Moves `~/printer_data/config/nfc/` to `NFC_removed_<timestamp>/` (your config is preserved, not deleted)
 5. Restarts Klipper
 
 **Manual steps after uninstalling** — the uninstaller cannot edit your config files:
 
 Remove these three lines from `printer.cfg`:
 ```ini
-[include NFC/nfc_vars.cfg]
+[include NFC/nfc_reader.cfg]
 [include NFC/nfc_macros.cfg]
-[include NFC/pn532_i2C.cfg]
+[include NFC/nfc_reader_hw.cfg]
 ```
 
 Remove the update manager block from `moonraker.conf`, then restart Moonraker:
@@ -194,7 +194,7 @@ sudo systemctl restart moonraker
 
 Delete the config backup when you no longer need it:
 ```bash
-rm -rf ~/printer_data/config/NFC_removed_*
+rm -rf ~/printer_data/config/nfc_removed_*
 ```
 
 ---

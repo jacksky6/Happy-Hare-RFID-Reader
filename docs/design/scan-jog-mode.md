@@ -1,8 +1,8 @@
 # Design: Scan-and-Jog Mode (Spool Pre-load NFC Identification)
 
 > Engineering reference — not end-user documentation.
-> Status: **Implemented** — `scan_jog.py` module, integrated into `NFC_manager.py`
-> Source: `klippy/extras/nfc_gates/scan_jog.py`, `klippy/extras/nfc_gates/NFC_manager.py`
+> Status: **Implemented** — `scan_jog.py` module, integrated into `nfc_manager.py`
+> Source: `klippy/extras/nfc_gates/scan_jog.py`, `klippy/extras/nfc_gates/nfc_manager.py`
 
 ---
 
@@ -31,10 +31,10 @@ Driving the jog loop from GCode would require a `[delayed_gcode]` that reschedul
 
 ## Code Structure
 
-All scan-jog logic lives in `klippy/extras/nfc_gates/scan_jog.py` as module-level functions. `NFCGate` in `NFC_manager.py` delegates to them via thin wrapper methods:
+All scan-jog logic lives in `klippy/extras/nfc_gates/scan_jog.py` as module-level functions. `NFCGate` in `nfc_manager.py` delegates to them via thin wrapper methods:
 
 ```python
-# NFCGate wrappers in NFC_manager.py
+# NFCGate wrappers in nfc_manager.py
 def _start_scan_mode(self):   return scan_jog.start(self)
 def _scan_step_event(self, t): return scan_jog.step_event(self, t)
 def _finish_scan(self):        return scan_jog.finish(self)
@@ -75,7 +75,7 @@ _poll_timer_event (every poll_interval)
 - A 2-second idle-settle delay (`_scan_idle_ready_time`) is inserted after HH reports idle. This prevents premature scan entry while HH is still completing its park move.
 - If another gate holds the scan lock, `_scan_pending` is re-armed and a 3-second retry is scheduled rather than silently dropping the trigger or spamming logs.
 
-**Manual trigger:** `NFC_GATE GATE=N JOG_SCAN=1` calls `scan_jog.manual_jog_scan(gate, gcmd)` directly. It runs the same precondition checks (not printing, HH idle, no other gate scanning, reader healthy) and calls `start(gate)`. No edge detection is involved.
+**Manual trigger:** `NFC GATE=N JOG_SCAN=1` calls `scan_jog.manual_jog_scan(gate, gcmd)` directly. It runs the same precondition checks (not printing, HH idle, no other gate scanning, reader healthy) and calls `start(gate)`. No edge detection is involved.
 
 ---
 
@@ -139,7 +139,7 @@ self._scan_idle_ready_time = 0.0       # timestamp for 2s HH-idle settle delay
 
 All added to `[nfc_gate]` (overridable per `[nfc_gate laneN]`):
 
-| Key | Python fallback | Shipped `nfc_vars.cfg` | Meaning |
+| Key | Python fallback | Shipped `nfc_reader.cfg` | Meaning |
 |---|---|---|---|
 | `scan_enabled` | `True` | `True` | Master switch — `False` disables scan mode entirely |
 | `scan_jog_mm` | `50.0` | `25.0` | Filament advance per jog step (mm) |

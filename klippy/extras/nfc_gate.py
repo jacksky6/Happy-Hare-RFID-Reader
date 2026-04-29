@@ -24,7 +24,7 @@
 
 __version__ = '1.0.0'
 
-from .nfc_gates.NFC_manager import NFCGate, NFCGateDefaults, _lane_instances
+from .nfc_gates.nfc_manager import NFCGate, NFCGateDefaults, _lane_instances
 
 # Tracks which printer object owns the current _lane_instances contents.
 # A new Printer is created on every Klipper RESTART, so when this changes

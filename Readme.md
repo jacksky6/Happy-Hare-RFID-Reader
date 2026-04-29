@@ -50,7 +50,7 @@ NFC tags sit on the spool hub. When Happy Hare parks filament at the gate the hu
 
 **Manual trigger:** If the automatic trigger didn't fire (or you want to retry), run:
 ```gcode
-NFC_GATE GATE=0 JOG_SCAN=1
+NFC GATE=0 JOG_SCAN=1
 ```
 This runs the exact same sequence with the same precondition checks (HH idle, not printing, no other gate scanning)
 
@@ -82,12 +82,12 @@ bash install.sh
 Add to `printer.cfg` — **order matters**:
 
 ```ini
-[include NFC/nfc_vars.cfg]
+[include NFC/nfc_reader.cfg]
 [include NFC/nfc_macros.cfg]
-[include NFC/pn532_i2C.cfg]
+[include NFC/nfc_reader_hw.cfg]
 ```
 
-Set your Spoolman URL in `~/printer_data/config/NFC/nfc_vars.cfg`:
+Set your Spoolman URL in `~/printer_data/config/nfc/nfc_reader.cfg`:
 
 ```ini
 [nfc_gate]
@@ -101,10 +101,11 @@ Add the Moonraker update block to `moonraker.conf`:
 [update_manager emu_nfc_reader]
 type:             git_repo
 path:             ~/emu-nfc-reader
-origin:           git@github.com:<your-github-username>/NFC-Reader.git
+origin:           https://github.com/<your-github-username>/NFC-Reader.git
 primary_branch:   main
 managed_services: klipper
 install_script:   install.sh
+info_tags:        desc=EMU NFC Gate Reader for Happy Hare
 ```
 
 Restart and verify:
@@ -114,7 +115,7 @@ sudo systemctl restart klipper moonraker
 ```
 
 ```gcode
-NFC_GATE_STATUS
+NFC_STATUS
 ```
 
 Expected (with no tags loaded):
@@ -135,12 +136,12 @@ See [Install & Uninstall](docs/shared/install-uninstall.md) for the complete fir
 These are the commands you'll actually use at the Fluidd/Mainsail console:
 
 ```gcode
-NFC_GATE_STATUS                    ; see all gates at a glance
-NFC_GATE GATE=0 SCAN=1             ; read a tag and show its UID
-NFC_GATE GATE=0 POLL=1             ; full cycle: read → Spoolman → Happy Hare
-NFC_GATE GATE=0 JOG_SCAN=1         ; start scan-jog (same as automatic pre-load trigger)
-NFC_GATE GATE=0 READ=1             ; start automatic background polling
-NFC_GATE GATE=0 READ=0             ; stop polling
+NFC_STATUS                    ; see all gates at a glance
+NFC GATE=0 SCAN=1             ; read a tag and show its UID
+NFC GATE=0 POLL=1             ; full cycle: read → Spoolman → Happy Hare
+NFC GATE=0 JOG_SCAN=1         ; start scan-jog (same as automatic pre-load trigger)
+NFC GATE=0 READ=1             ; start automatic background polling
+NFC GATE=0 READ=0             ; stop polling
 ```
 
 See [Commands & Macros](docs/shared/klipper-functions.md) for everything, including how to test the Happy Hare handoff without hardware.

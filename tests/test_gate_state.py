@@ -61,7 +61,7 @@ _stub('nfc_gates.pn532_driver',
       run_low_level_debug=lambda *a, **k: False)
 _stub('nfc_gates.spoolman_client', SpoolmanClient=object)
 
-from nfc_gates.NFC_manager import GateState, EVENT_CHANGED, EVENT_UID_ONLY, EVENT_REMOVED
+from nfc_gates.nfc_manager import GateState, EVENT_CHANGED, EVENT_UID_ONLY, EVENT_REMOVED
 
 
 def assert_event(event, expected_type, gate=0, uid=None, spool=None):

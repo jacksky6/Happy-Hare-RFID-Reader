@@ -9,16 +9,16 @@
 Three files, included in this order from `printer.cfg`:
 
 ```ini
-[include NFC/nfc_vars.cfg]    ; base settings — edit this
+[include NFC/nfc_reader.cfg]    ; base settings — edit this
 [include NFC/nfc_macros.cfg]  ; Happy Hare event macros — edit only if needed
-[include NFC/pn532_i2C.cfg]   ; one section per physical gate — edit this
+[include NFC/nfc_reader_hw.cfg]   ; one section per physical gate — edit this
 ```
 
-**How inheritance works:** `nfc_vars.cfg` defines the base `[nfc_gate]` section with all defaults. Each `[nfc_gate laneN]` in `pn532_i2C.cfg` inherits every key automatically. Override a key in a lane section only when that lane needs a different value.
+**How inheritance works:** `nfc_reader.cfg` defines the base `[nfc_gate]` section with all defaults. Each `[nfc_gate laneN]` in `nfc_reader_hw.cfg` inherits every key automatically. Override a key in a lane section only when that lane needs a different value.
 
 ---
 
-## `nfc_vars.cfg` — Base Settings
+## `nfc_reader.cfg` — Base Settings
 
 ### Spoolman
 
@@ -141,7 +141,7 @@ debug:             3
 low_level_debug: False
 ```
 
-When `True`, exposes manual PN532 I2C bus commands (`STEP`, `RAW_READ`, `RAW_WRITE`, etc.) on the `NFC_GATE` command for step-by-step bring-up debugging.
+When `True`, exposes manual PN532 I2C bus commands (`STEP`, `RAW_READ`, `RAW_WRITE`, etc.) on the `NFC` command for step-by-step bring-up debugging.
 
 > [!WARNING]
 > These commands bypass the normal state machine. Set back to `False` before printing.
@@ -150,7 +150,7 @@ See [Commands & Macros](klipper-functions.md#expert-low-level-debug-commands) an
 
 ---
 
-## `pn532_i2C.cfg` — Lane Hardware
+## `nfc_reader_hw.cfg` — Lane Hardware
 
 One `[nfc_gate laneN]` section per physical gate:
 
@@ -167,7 +167,7 @@ i2c_bus:    i2c3_PB3_PB4
 | `i2c_mcu` | Yes | Klipper MCU name. Must exactly match an `[mcu laneN]` section in your config. |
 | `i2c_bus` | Yes | Hardware I2C bus on that MCU. For PB3/PB4 on EBB42: `i2c3_PB3_PB4`. |
 
-Any `nfc_vars.cfg` key can be overridden per lane. Example — verbose logging and auto-polling on one lane only:
+Any `nfc_reader.cfg` key can be overridden per lane. Example — verbose logging and auto-polling on one lane only:
 
 ```ini
 [nfc_gate lane2]

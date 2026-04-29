@@ -27,7 +27,7 @@ Before registering any tags, Spoolman needs to know the `rfid_tag` field exists.
 5. Save
 
 > [!IMPORTANT]
-> The field name must exactly match `spoolman_rfid_key` in `nfc_vars.cfg`. Both default to `rfid_tag`. If you use a different name, change both places.
+> The field name must exactly match `spoolman_rfid_key` in `nfc_reader.cfg`. Both default to `rfid_tag`. If you use a different name, change both places.
 
 ---
 
@@ -39,7 +39,7 @@ You need the UID of each NFC tag before you can register it. There are a few way
 
 Hold the tag near the reader and run:
 ```gcode
-NFC_GATE GATE=0 SCAN=1
+NFC GATE=0 SCAN=1
 ```
 The UID prints in the console.
 
@@ -72,7 +72,7 @@ The system normalizes everything to uppercase hex before comparing.
 With the registered spool loaded on a gate, run a full poll:
 
 ```gcode
-NFC_GATE GATE=0 POLL=1
+NFC GATE=0 POLL=1
 ```
 
 **Success:**
@@ -145,7 +145,7 @@ console_output:    True
 console_log_level: info
 ```
 
-Restart Klipper, then run `NFC_GATE GATE=0 POLL=1`.
+Restart Klipper, then run `NFC GATE=0 POLL=1`.
 
 ---
 

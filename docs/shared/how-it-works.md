@@ -29,7 +29,7 @@ If the physical spool was swapped while Klipper was down, the resolved spool_id 
 
 ```
 ✅ NFC[lane0]: reader ready.  HH seed: spool_id=42  Startup polling is enabled; first poll in 0.0s.
-✅ NFC[lane1]: reader ready.  HH reports gate empty  Run NFC_GATE GATE=1 READ=1 to start polling.
+✅ NFC[lane1]: reader ready.  HH reports gate empty  Run NFC GATE=1 READ=1 to start polling.
 ```
 
 The seed is one-shot — it fires at most once per lane per boot, on the first `CHANGED` event. If Happy Hare wasn't ready when the NFC init ran, the seed step is skipped and a manual `NFC_HH_SYNC_CACHE` re-syncs all lanes.
@@ -117,7 +117,7 @@ Each layer owns one responsibility and must not reach across the boundary.
 |---|---|---|---|
 | **PN532Driver** | `pn532_driver.py` | PN532 wire protocol, I2C frames, UID extraction | Spoolman, gate policy, Happy Hare |
 | **SpoolmanClient** | `spoolman_client.py` | UID → spool record lookup and TTL cache | Gate state, lane assignment, MMU commands |
-| **NFC_Manager** | `NFC_manager.py` | Gate state machine, change/remove decisions, macro dispatch, HH seed | PN532 protocol details, Spoolman HTTP |
+| **NFC_Manager** | `nfc_manager.py` | Gate state machine, change/remove decisions, macro dispatch, HH seed | PN532 protocol details, Spoolman HTTP |
 | **nfc_macros.cfg** | config file | Happy Hare-facing GCode calls | NFC reads, Spoolman lookups |
 
 ---

@@ -138,7 +138,7 @@ Gating them behind a config flag means they are discoverable for bring-up but ca
 
 **What we decided:** `install.sh` never overwrites a config file section the user has already configured. On subsequent runs, it only appends sections that are missing.
 
-**Why:** Config files in `~/printer_data/config/NFC/` are part of the user's printer configuration. Overwriting them on update would destroy local customizations — particularly in `nfc_macros.cfg` where users may have adapted the Happy Hare calls for their version, and in `pn532_i2C.cfg` where the exact lane names and MCU names are specific to each user's hardware.
+**Why:** Config files in `~/printer_data/config/nfc/` are part of the user's printer configuration. Overwriting them on update would destroy local customizations — particularly in `nfc_macros.cfg` where users may have adapted the Happy Hare calls for their version, and in `nfc_reader_hw.cfg` where the exact lane names and MCU names are specific to each user's hardware.
 
 The merge strategy (copy-if-absent, append-missing-sections) means that new features that add new config sections are picked up on the next `install.sh` run, while existing customizations survive.
 
