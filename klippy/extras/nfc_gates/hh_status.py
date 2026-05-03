@@ -43,6 +43,8 @@ class HHGateStatus:
         if self.assigned:
             return "HH: spool %d  %s" % (
                 self.spool, "available" if self.available else "assigned")
+        if self.available:
+            return "HH: found/no spool"
         return "HH: empty"
 
 

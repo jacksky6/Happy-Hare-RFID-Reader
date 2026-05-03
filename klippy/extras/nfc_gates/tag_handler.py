@@ -16,6 +16,105 @@ from .gate_state import CurrentTag, DIRECT_METADATA_SPOOL
 from .log import logger
 
 
+# ── NTAG / NDEF helpers ───────────────────────────────────────────────────────
+
+def _find_ndef_tlv(data):
+    if data is None:
+        return None
+    raw = bytes(data)
+    i = 0
+    while i < len(raw):
+        t = raw[i]
+        if t == 0x00:
+            i += 1
+            continue
+        if t == 0xFE:
+            return None
+        if i + 1 >= len(raw):
+            return None
+        length = raw[i + 1]
+        if length == 0xFF:
+            if i + 3 >= len(raw):
+                return None
+            length = (raw[i + 2] << 8) | raw[i + 3]
+            value_start = i + 4
+        else:
+            value_start = i + 2
+        value_end = value_start + length
+        if t == 0x03:
+            if value_end > len(raw):
+                return {
+                    'complete': False,
+                    'ndef_len': length,
+                    'tlv_len': value_end,
+                    'payload': raw[value_start:],
+                }
+            return {
+                'complete': True,
+                'ndef_len': length,
+                'tlv_len': value_end,
+                'payload': raw[value_start:value_end],
+            }
+        if value_end > len(raw):
+            return None
+        i = value_end
+    return None
+
+
+def _decode_ndef_text_records(ndef):
+    records = []
+    idx = 0
+    while idx < len(ndef):
+        header = ndef[idx]
+        idx += 1
+        sr = bool(header & 0x10)
+        il = bool(header & 0x08)
+        tnf = header & 0x07
+        if idx >= len(ndef):
+            break
+        type_len = ndef[idx]
+        idx += 1
+        if sr:
+            if idx >= len(ndef):
+                break
+            payload_len = ndef[idx]
+            idx += 1
+        else:
+            if idx + 4 > len(ndef):
+                break
+            payload_len = int.from_bytes(ndef[idx:idx + 4], 'big')
+            idx += 4
+        id_len = 0
+        if il:
+            if idx >= len(ndef):
+                break
+            id_len = ndef[idx]
+            idx += 1
+        rec_type = ndef[idx:idx + type_len]
+        idx += type_len + id_len
+        payload = ndef[idx:idx + payload_len]
+        idx += payload_len
+        if tnf == 0x01 and rec_type == b'T' and payload:
+            status = payload[0]
+            lang_len = status & 0x3F
+            encoding = 'utf-16' if status & 0x80 else 'utf-8'
+            text_payload = payload[1 + lang_len:]
+            try:
+                records.append(text_payload.decode(encoding, errors='replace'))
+            except Exception:
+                records.append(text_payload.decode('utf-8', errors='replace'))
+        if header & 0x40:  # ME
+            break
+    return records
+
+
+def _single_line_preview(text, limit=300):
+    text = ' '.join(str(text).replace('\x00', '').split())
+    if len(text) <= limit:
+        return text
+    return text[:limit - 3] + '...'
+
+
 # ── Tag classification ────────────────────────────────────────────────────────
 
 def classify_tag_target(gate, target_info):
@@ -92,12 +191,29 @@ def parse_current_tag(gate, tag):
 def capture_ntag_metadata(gate, tag):
     uid_hex = tag.uid
     try:
-        raw = gate._reader.ntag_read_user_memory(
-            start_page=4, end_page=4 + gate._tag_max_pages - 1)
+        read_ndef = getattr(gate._reader, 'ntag_read_ndef_user_memory', None)
+        if read_ndef is not None:
+            raw = read_ndef(start_page=4, max_pages=gate._tag_max_pages)
+        else:
+            raw = gate._reader.ntag_read_user_memory(
+                start_page=4, end_page=4 + gate._tag_max_pages - 1)
         tag.raw_tag_data = raw
         if gate._debug >= 3:
-            logger.info("nfc_gate: [%s] gate %d — uid=%s  NTAG read %d bytes",
-                        gate._name, gate._gate, uid_hex, len(raw))
+            tlv = _find_ndef_tlv(raw)
+            if tlv is not None:
+                logger.info(
+                    "nfc_gate: [%s] gate %d — uid=%s  NTAG read %d bytes "
+                    "(NDEF length=%d, %s)",
+                    gate._name, gate._gate, uid_hex, len(raw),
+                    tlv['ndef_len'], 'complete' if tlv['complete'] else 'partial')
+                for text in _decode_ndef_text_records(tlv['payload']):
+                    logger.info(
+                        "nfc_gate: [%s] gate %d — uid=%s  NDEF text: %s",
+                        gate._name, gate._gate, uid_hex,
+                        _single_line_preview(text))
+            else:
+                logger.info("nfc_gate: [%s] gate %d — uid=%s  NTAG read %d bytes",
+                            gate._name, gate._gate, uid_hex, len(raw))
     except Exception as e:
         tag.parse_error = 'ntag read failed: {}'.format(e)
         tag.meta = {'uid': uid_hex}

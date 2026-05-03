@@ -176,6 +176,46 @@ def test_check_frame_rejects_wrong_cmd():
     raw    = bytearray(_make_response(0x15))
     assert driver._check_frame(raw, 0x03) is None
 
+def test_ntag_ndef_read_uses_tlv_length():
+    driver = PN532Driver(MockI2C(), gate=0, crc_delay=0.0)
+    ndef_payload = bytes([0xD1, 0x01, 0x6C, 0x54, 0x02, 0x65, 0x6E])
+    ndef_payload += b'{"protocol":"openspool","type":"ABS","brand":"Sunlu"}'
+    ndef_payload += bytes(112 - len(ndef_payload))
+    raw = bytearray([0x03, 112]) + bytearray(ndef_payload) + bytearray([0xFE])
+    raw.extend([0x00] * 16)
+
+    calls = []
+    def _read(page):
+        calls.append(page)
+        offset = (page - 4) * 4
+        return list(raw[offset:offset + 16])
+    driver.robust_page_read = _read
+    driver._release_current_target = lambda reason='manual': None
+
+    result = driver.ntag_read_ndef_user_memory(start_page=4, max_pages=40)
+
+    assert len(result) == 114
+    assert result[:2] == bytes([0x03, 112])
+    assert b'"protocol":"openspool"' in result
+    assert calls == [4, 8, 12, 16, 20, 24, 28, 32]
+
+def test_ntag_ndef_read_falls_back_to_max_pages_without_ndef_tlv():
+    driver = PN532Driver(MockI2C(), gate=0, crc_delay=0.0)
+    raw = bytearray(b'BINARY_TAG_DATA') + bytearray([0x00] * 64)
+
+    calls = []
+    def _read(page):
+        calls.append(page)
+        offset = (page - 4) * 4
+        return list(raw[offset:offset + 16])
+    driver.robust_page_read = _read
+    driver._release_current_target = lambda reason='manual': None
+
+    result = driver.ntag_read_ndef_user_memory(start_page=4, max_pages=8)
+
+    assert len(result) == 32
+    assert calls == [4, 8]
+
 
 if __name__ == '__main__':
     tests  = [v for k, v in sorted(globals().items()) if k.startswith('test_')]

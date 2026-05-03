@@ -510,6 +510,91 @@ class _PN532Base:
         finally:
             self._release_current_target(reason="user_memory_complete")
 
+    @staticmethod
+    def _ndef_tlv_extent(data):
+        """Return (tlv_bytes, ndef_len) for the first complete/partial NDEF TLV."""
+        i = 0
+        data_len = len(data)
+        while i < data_len:
+            t = data[i]
+            if t == 0x00:  # NULL TLV
+                i += 1
+                continue
+            if t == 0xFE:  # Terminator TLV
+                return None
+            if i + 1 >= data_len:
+                return None
+            l = data[i + 1]
+            if l == 0xFF:
+                if i + 3 >= data_len:
+                    return None
+                l = (data[i + 2] << 8) | data[i + 3]
+                value_start = i + 4
+            else:
+                value_start = i + 2
+            value_end = value_start + l
+            if t == 0x03:
+                return value_end, l
+            i = value_end
+        return None
+
+    def ntag_read_ndef_user_memory(self, start_page=4, max_pages=16,
+                                   max_ndef_pages=135):
+        """
+        Read NTAG user memory, expanding to the NDEF TLV's advertised length.
+
+        The first read grabs enough bytes to inspect the Type-2 TLV header.  If
+        an NDEF TLV (0x03) is present, the advertised NDEF length determines how
+        many user-memory pages are read.  max_pages is the fallback window for
+        non-NDEF/binary formats; max_ndef_pages is a hard safety cap for NDEF.
+        """
+        max_pages = max(4, int(max_pages))
+        max_ndef_pages = max(max_pages, int(max_ndef_pages))
+        fallback_bytes = max_pages * 4
+        max_ndef_bytes = max_ndef_pages * 4
+        user_data = bytearray()
+        target_bytes = min(16, fallback_bytes)
+        ndef_len = None
+        try:
+            current_page = start_page
+            while len(user_data) < target_bytes:
+                page_data = self.robust_page_read(current_page)
+                if not page_data:
+                    break
+                user_data.extend(page_data)
+
+                extent = self._ndef_tlv_extent(user_data)
+                if extent is not None:
+                    target_bytes, ndef_len = extent
+                    if target_bytes > max_ndef_bytes:
+                        if self._debug >= 3:
+                            logger.info(
+                                "ntag_read_ndef_user_memory: gate %d (%s) "
+                                "NDEF length=%d requires %d bytes; capped at "
+                                "%d bytes by max_ndef_pages",
+                                self._gate, self._transport_name, ndef_len,
+                                target_bytes, max_ndef_bytes)
+                        target_bytes = max_ndef_bytes
+                elif len(user_data) >= 16:
+                    # No NDEF TLV in the initial chunk. Preserve the older
+                    # fixed-window behavior for binary/non-NDEF tag formats.
+                    target_bytes = fallback_bytes
+
+                current_page += 4
+                if current_page > 255:
+                    break
+                time.sleep(0.005)
+
+            result = user_data[:min(len(user_data), target_bytes)]
+            if self._debug >= 4 and ndef_len is not None:
+                logger.debug(
+                    "ntag_read_ndef_user_memory: gate %d (%s) "
+                    "NDEF length=%d read=%d bytes",
+                    self._gate, self._transport_name, ndef_len, len(result))
+            return result
+        finally:
+            self._release_current_target(reason="ndef_user_memory_complete")
+
     def mifare_authenticate(self, block_addr, key, use_key_b=False):
         """Authenticate a MIFARE Classic sector using InDataExchange.
 

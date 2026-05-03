@@ -110,8 +110,11 @@ def start(gate, max_mm=None):
     gate._hh_seed_spool_id = None
     gate._hh_seed_available = False
     gate._scan_found_event = None
+    gate._scan_previous_uid = gate._state.current_uid
+    gate._scan_previous_spool = gate._state.current_spool
     gate._state.current_uid   = None  # force changed event on first read
     gate._state.current_spool = None
+    gate._hh_load_paused = False
     gate._scan_gate_selected = False  # deferred to first jog (must run from timer, not GCode handler)
 
     gate._scan_timer = gate.reactor.register_timer(
@@ -204,13 +207,14 @@ def finish(gate):
             event_type, g, uid, spool = event
             meta = None
         gate._scan_found_event = None
-        auto_created = False
-        if (event_type == 'changed'
-                and gate._state.current_tag is not None):
-            res = gate._state.current_tag.resolution or {}
-            auto_created = isinstance(res, dict) and res.get('path') == 'auto_create'
-        gate._klipper.dispatch(event_type, g, uid, spool, meta=meta,
-                               auto_created=auto_created)
+        if event_type == 'changed' and meta is not None and spool is None:
+            gate._klipper.dispatch(event_type, g, uid, spool, meta=meta)
+        else:
+            gate._poll_update_spoolman_location(event_type, g, spool)
+            gate._poll_klipper_dispatch(event_type, g, uid, spool)
+        if event_type == 'changed' and spool is not None:
+            gate._hh_load_paused = True
+            gate._state.miss_count = 0
         if event_type == 'changed' and spool is not None:
             msg = "✅ NFC[%d]: spool %s assigned" % (g, spool)
             info_both(msg)
@@ -223,6 +227,8 @@ def finish(gate):
             msg = "⚠️ NFC[%d]: tag has no Spoolman match" % g
             logger.warning(msg)
             gate._console(msg)
+    gate._scan_previous_uid = None
+    gate._scan_previous_spool = None
     gate._resume_poll_after_rewind()
 
 
@@ -235,6 +241,18 @@ def rewind_and_exit(gate):
     gate._console(msg)
     gate._run_rewind()
     gate.__class__._active_scan_gate = None
+    previous_uid = getattr(gate, '_scan_previous_uid', None)
+    previous_spool = getattr(gate, '_scan_previous_spool', None)
+    if previous_spool is not None:
+        gate._state.current_uid = previous_uid
+        gate._state.current_spool = previous_spool
+        hh = gate._read_hh_status()
+        gate._hh_load_paused = bool(
+            hh.present and hh.available and hh.spool == previous_spool)
+    else:
+        gate._hh_load_paused = False
+    gate._scan_previous_uid = None
+    gate._scan_previous_spool = None
     gate._resume_poll_after_rewind()
 
 

@@ -77,7 +77,8 @@ _stub('nfc_gates.spoolman_client', SpoolmanClient=_MockSpoolmanClient)
 # so pytest collection order cannot leak stubs between files.
 sys.modules.pop('nfc_gates.nfc_manager', None)
 
-from nfc_gates.nfc_manager import GateState, NFCGate
+from nfc_gates.nfc_manager import (
+    GateState, NFCGate, _lane_instances, _lane_status_lines)
 
 
 # ── Test doubles ──────────────────────────────────────────────────────────────
@@ -217,6 +218,7 @@ def _make_gate(gate=0, scan_jog_mm=50.0, scan_max_mm=200.0,
     g._hh_load_paused     = False
     g._hh_confirmed_spool = None
     g._state              = GateState(gate)
+    g._spoolman           = None
     g.reactor             = MockReactor()
     g.printer             = MockPrinter()
     g._poll_timer         = g.reactor.register_timer(lambda e: g.reactor.NEVER)
@@ -236,6 +238,31 @@ def test_start_scan_acquires_lock():
     g._start_scan_mode()
     assert NFCGate._active_scan_gate == 0
 
+def test_start_scan_clears_hh_pause_so_reader_can_poll():
+    g = _make_gate()
+    g._state.current_uid = '04C19F92D32A81'
+    g._state.current_spool = 55
+    g._hh_load_paused = True
+
+    g._start_scan_mode()
+
+    assert not g._hh_load_paused
+    assert g._state.current_uid is None
+    assert g._state.current_spool is None
+    assert g._scan_previous_uid == '04C19F92D32A81'
+    assert g._scan_previous_spool == 55
+
+def test_paused_without_nfc_spool_does_not_skip_reader():
+    g = _make_gate()
+    g.printer.set_mmu(MockMMU(gate_status=[1], gate_spool_id=[55]))
+    g._hh_load_paused = True
+    g._state.current_spool = None
+
+    skipped = g._poll_hh_pause_check()
+
+    assert not skipped
+    assert not g._hh_load_paused
+
 def test_finish_scan_releases_lock():
     g = _make_gate()
     g._start_scan_mode()
@@ -247,6 +274,20 @@ def test_rewind_and_exit_releases_lock():
     g._start_scan_mode()
     g._rewind_and_exit_scan()
     assert NFCGate._active_scan_gate is None
+
+def test_no_tag_scan_restores_previous_nfc_spool():
+    g = _make_gate()
+    g.printer.set_mmu(MockMMU(gate_status=[1], gate_spool_id=[55]))
+    g._state.current_uid = '04C19F92D32A81'
+    g._state.current_spool = 55
+    g._hh_load_paused = True
+    g._start_scan_mode()
+
+    g._rewind_and_exit_scan()
+
+    assert g._state.current_uid == '04C19F92D32A81'
+    assert g._state.current_spool == 55
+    assert g._hh_load_paused
 
 def test_finish_holds_lock_until_rewind_check_gate_runs():
     g = _make_gate(gate=2)
@@ -301,6 +342,89 @@ def test_assigned_matching_spool_suspends_without_polling():
     assert g._hh_load_paused
     assert result == pytest_approx(130.0)
     assert '[polling suspended]' in g.status_line()
+
+def test_hh_found_without_spool_does_not_clear_nfc_cache():
+    g = _make_gate()
+    g.printer.set_mmu(MockMMU(gate_status=[1], gate_spool_id=[-1]))
+    g._state.current_uid = '04C19F92D32A81'
+    g._state.current_spool = 55
+    g._hh_load_paused = True
+
+    skipped = g._poll_hh_pause_check()
+
+    assert skipped
+    assert g._state.current_uid == '04C19F92D32A81'
+    assert g._state.current_spool == 55
+    assert g._hh_load_paused
+    assert 'HH: found/no spool' in g.status_line()
+    assert '[NFC has spool 55; HH found/no spool]' in g.status_line()
+
+def test_hh_found_with_nfc_spool_does_not_start_scan_jog():
+    g = _make_gate()
+    g.printer.set_mmu(MockMMU(gate_status=[1], gate_spool_id=[-1]))
+    g.printer.set_print_state('standby')
+    g._state.current_uid = '04C19F92D32A81'
+    g._state.current_spool = 55
+    g._prev_gate_status = 0
+    g._poll = lambda: False
+
+    result = g._poll_timer_event(100.0)
+
+    assert not g._scan_pending
+    assert not g._scan_mode
+    assert g._hh_load_paused
+    assert g._state.current_spool == 55
+    assert result == pytest_approx(130.0)
+
+def test_startup_hh_found_without_spool_allows_discovery_scan():
+    g = _make_gate()
+    g.printer.set_mmu(MockMMU(gate_status=[1], gate_spool_id=[-1]))
+    g._seed_cache_from_hh(100.0)
+
+    assert not g._hh_load_paused
+    assert g._state.current_spool is None
+    assert 'Gate 0:  occupied' in g.status_line()
+    assert '[polling]' in g.status_line()
+    assert '[HH: found/no spool]' in g.status_line()
+
+def test_hh_found_without_nfc_spool_starts_discovery_scan_jog():
+    g = _make_gate()
+    g.printer.set_mmu(MockMMU(gate_status=[1], gate_spool_id=[-1]))
+    g.printer.set_print_state('standby')
+    g._prev_gate_status = 0
+    g._poll = lambda: False
+
+    result = g._poll_timer_event(100.0)
+
+    assert not g._scan_mode
+    assert result == pytest_approx(100.1)
+
+    g.reactor._time = 100.1
+    result = g._poll_timer_event(100.1)
+
+    assert g._scan_mode
+    assert result == g.reactor.NEVER
+
+def test_lane_status_lines_matches_lane_mcus_without_crashing():
+    class StatusPrinter:
+        def lookup_objects(self, kind):
+            assert kind == 'mcu'
+            return [('mcu lane0', object()), ('mcu lane1', object())]
+
+    g = _make_gate()
+    g._name = 'lane0'
+    g.status_line = lambda: '  Gate 0:  empty   [polling]  [HH idle]'
+
+    old_lanes = list(_lane_instances)
+    try:
+        _lane_instances[:] = [g]
+        lines = _lane_status_lines(StatusPrinter())
+    finally:
+        _lane_instances[:] = old_lanes
+
+    assert lines[0] == 'NFC gate status — 2 MMU lane(s), 1 NFC reader(s) configured:'
+    assert 'Gate 0:  empty' in lines[1]
+    assert lines[2] == '  lane1:    no NFC reader configured'
 
 def test_cold_start_no_false_trigger():
     """prev=-1 → curr=1 must not trigger scan (prevents cold-start false fire)."""
@@ -730,6 +854,8 @@ def test_finish_scan_spool_id_dispatches_no_meta():
     g._finish_scan()
 
     assert g._klipper.calls == [('changed', 0, '04AABB', 42, None)]
+    assert g._hh_load_paused
+    assert g._hh_confirmed_spool == 42
 
 def test_finish_scan_no_event_does_not_dispatch():
     """When scan_found_event is None, klipper.dispatch is never called."""

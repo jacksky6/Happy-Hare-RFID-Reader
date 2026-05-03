@@ -56,7 +56,7 @@ spoolman_auto_create: False
 | `tag_parsing` | `False` | `False` = UID-only (default — no tag content reads). `True` = read NTAG user pages or MIFARE authenticated blocks and parse filament metadata from the tag payload. |
 | `bambu_reads` | `False` | Allow authenticated MIFARE reads for Bambu factory spools when `tag_parsing: True`. Requires `pycryptodome` in the Klipper Python venv. Leave `False` unless pycryptodome is installed. |
 | `spoolman_auto_create` | `False` | When `tag_parsing: True` and no existing Spoolman spool matches the tag, automatically create a new vendor/filament/spool record from tag metadata. Only activates when the tag carries at least a material type. |
-| `tag_max_pages` | `16` | Maximum NTAG user pages to read when `tag_parsing: True`. Default `16` covers NTAG213 (pages 4–15, 45 bytes), NTAG215, and NTAG216. Increase to `135` only for large-payload tags (NTAG226, NTAG424). Higher values add I2C round-trips with no benefit for most tags. |
+| `tag_max_pages` | `16` | Fallback NTAG user-page window for non-NDEF/binary tags. NDEF text/JSON tags read the NDEF TLV length dynamically, so large OpenSpool/OpenPrintTag payloads do not need this increased. |
 
 > [!NOTE]
 > `bambu_reads: True` with `tag_parsing: False` logs a warning at startup and has no effect — the MIFARE path is never reached when tag parsing is disabled.
