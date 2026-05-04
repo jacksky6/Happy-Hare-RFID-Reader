@@ -12,6 +12,8 @@
 #   read_current_tag(gate)   — hardware read + metadata capture
 #   resolve_spool(gate, uid) — resolution ladder: embedded ID → UID → auto-create → metadata-direct
 
+import inspect
+
 from .gate_state import CurrentTag, DIRECT_METADATA_SPOOL
 from .log import logger
 
@@ -174,6 +176,30 @@ def _parse_attempt_summary(raw):
             'Creality CFS, QIDI Box, Bambu heuristic, then raw UTF-8 JSON/URL')
 
 
+def _trace_for_gate(gate, prefix):
+    def _trace(level, msg, *args):
+        if level == 'debug':
+            if gate._debug >= 4:
+                logger.debug(prefix + msg, *args)
+            return
+        if gate._debug >= 3:
+            logger.info(prefix + msg, *args)
+    return _trace
+
+
+def _accepts_kwarg(callable_obj, name):
+    try:
+        sig = inspect.signature(callable_obj)
+    except (TypeError, ValueError):
+        return False
+    for param in sig.parameters.values():
+        if param.kind == inspect.Parameter.VAR_KEYWORD:
+            return True
+        if param.name == name:
+            return True
+    return False
+
+
 # ── Tag classification ────────────────────────────────────────────────────────
 
 def classify_tag_target(gate, target_info):
@@ -237,7 +263,16 @@ def parse_current_tag(gate, tag):
             logger.debug(
                 "nfc_gate: [%s] gate %d — uid=%s  parse_tag attempt order: %s",
                 gate._name, gate._gate, uid_hex, _parse_attempt_summary(raw))
-        info = parse_tag(raw, uid_hex=uid_hex)
+        if _accepts_kwarg(parse_tag, 'trace'):
+            info = parse_tag(
+                raw,
+                uid_hex=uid_hex,
+                trace=_trace_for_gate(
+                    gate,
+                    "nfc_gate: [%s] gate %d — uid=%s  rfid_tag_parser: " %
+                    (gate._name, gate._gate, uid_hex)))
+        else:
+            info = parse_tag(raw, uid_hex=uid_hex)
         if isinstance(info, dict) and 'uid' not in info:
             info = dict(info)
             info['uid'] = uid_hex
@@ -535,9 +570,17 @@ def resolve_spool(gate, uid_hex):
             try:
                 from .vendor.lameandboard_spoolman import (
                     SpoolmanClient as LBSpoolmanClient)
-                lb = LBSpoolmanClient(base_url=base_url,
-                                      timeout=gate._spoolman._timeout,
-                                      debug=gate._debug)
+                if _accepts_kwarg(LBSpoolmanClient, 'trace'):
+                    lb = LBSpoolmanClient(
+                        base_url=base_url,
+                        timeout=gate._spoolman._timeout,
+                        trace=_trace_for_gate(
+                            gate,
+                            "nfc_gate: [%s] gate %d — uid=%s  " %
+                            (gate._name, gate._gate, uid_hex)))
+                else:
+                    lb = LBSpoolmanClient(base_url=base_url,
+                                          timeout=gate._spoolman._timeout)
                 if gate._debug >= 3:
                     logger.info(
                         "nfc_gate: [%s] gate %d — uid=%s  "

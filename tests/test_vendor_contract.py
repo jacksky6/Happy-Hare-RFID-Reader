@@ -40,6 +40,8 @@ class TestParseTagContract:
         assert len(params) >= 1
         # uid_hex must be an accepted keyword
         assert 'uid_hex' in params
+        # Optional trace callback allows integrations to capture parser flow.
+        assert 'trace' in params
 
     def test_parse_tag_blank_returns_dict_or_none(self):
         # Blank NTAG user memory — all zeros
@@ -83,6 +85,15 @@ class TestParseTagContract:
         result = parse_tag(bytes(64), uid_hex='04001122334455')
         assert result is None or isinstance(result, dict)
 
+    def test_parse_tag_trace_callback_is_optional(self):
+        events = []
+        result = parse_tag(
+            bytes(64),
+            uid_hex='04001122334455',
+            trace=lambda level, msg, *args: events.append((level, msg, args)))
+        assert result is None or isinstance(result, dict)
+        assert events
+
     def test_is_parse_error_accepts_none(self):
         # Our adapter calls is_parse_error(current_tag.meta) which may be None
         result = is_parse_error(None)
@@ -108,6 +119,7 @@ class TestSpoolmanClientContract:
         params = sig.parameters
         assert 'base_url' in params
         assert 'timeout' in params
+        assert 'trace' in params
 
     def test_find_or_create_vendor_exists(self):
         assert callable(getattr(SpoolmanClient, 'find_or_create_vendor', None))
