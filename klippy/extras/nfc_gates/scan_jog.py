@@ -210,7 +210,6 @@ def finish(gate):
         if event_type == 'changed' and meta is not None and spool is None:
             gate._klipper.dispatch(event_type, g, uid, spool, meta=meta)
         else:
-            gate._poll_update_spoolman_location(event_type, g, spool)
             gate._poll_klipper_dispatch(event_type, g, uid, spool)
         if event_type == 'changed' and spool is not None:
             gate._hh_load_paused = True

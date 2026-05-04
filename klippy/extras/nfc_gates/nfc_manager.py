@@ -1065,7 +1065,6 @@ class NFCGate:
                     "dispatch deferred until rewind complete",
                     self._name, gate, event_type)
         else:
-            self._poll_update_spoolman_location(event_type, gate, spool)
             if suppress:
                 if self._debug >= 3:
                     logger.info(
@@ -1074,14 +1073,6 @@ class NFCGate:
                         self._name, gate, spool)
             else:
                 self._poll_klipper_dispatch(event_type, gate, uid, spool)
-
-    def _poll_update_spoolman_location(self, event_type, gate, spool):
-        if self._spoolman is None or spool is DIRECT_METADATA_SPOOL:
-            return
-        if event_type == EVENT_CHANGED and spool is not None:
-            self._spoolman.update_spool_location(spool, gate)
-        elif event_type == EVENT_REMOVED and spool is not None:
-            self._spoolman.clear_spool_location(spool)
 
     def _poll_klipper_dispatch(self, event_type, gate, uid, spool):
         meta = None
