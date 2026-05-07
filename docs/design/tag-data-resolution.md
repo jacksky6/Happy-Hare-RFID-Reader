@@ -233,7 +233,12 @@ From `NFCManager` this should be a single adapter call into the embedded `lamean
 spool = resolver.auto_create_spool(uid=uid, tag_meta=current_tag.meta)
 ```
 
-Internally, the embedded client performs the Spoolman CRUD sequence:
+Internally, the embedded client performs the Spoolman CRUD sequence.  The NFC
+integration calls the vendored top-level `auto_create_spool()` with
+`uid_hex=None` so it can use the richer vendor/filament/spool creation policy
+without creating the vendored `rfid_uid_1` field.  Immediately after the
+vendored call returns a new spool ID, our client patches the configured
+`spoolman_rfid_key` field (default `rfid_tag`) onto that spool.
 
 ```
 GET /api/v1/filament?vendor={vendor}&name={material}
@@ -242,15 +247,18 @@ GET /api/v1/filament?vendor={vendor}&name={material}
                   → filament_id
 
 POST /api/v1/spool
-  body: { filament_id, extra: { rfid_tag: uid } }
+  body: { filament_id, ... }
   → new spool_id
+
+PATCH /api/v1/spool/{new_spool_id}
+  body: { extra: { rfid_tag: uid } }
 
 → _NFC_SPOOL_CHANGED(GATE, new_spool_id)
 ```
 
 The NFC integration should not duplicate this create/find logic. Our adapter is responsible for translating `current_tag.meta` into the library's expected input, enforcing our configured `spoolman_rfid_key`/`rfid_tag` convention, and translating errors into our logging and console-message style.
 
-The newly created spool gets the tag UID written into its `rfid_tag` extra field so that Step 2 resolves immediately on the next scan (no re-create).
+The newly created spool must get the tag UID written into its `rfid_tag` extra field so that Step 2 resolves immediately on the next scan (no re-create). If that patch fails, the integration treats the auto-create as unresolved and logs a warning rather than dispatching a spool that cannot be found again by UID.
 
 Color, nozzle temp, bed temp, and weight are written to the filament record when present in tag data and when the filament was just created (not when reusing an existing one — we don't overwrite filament records the user may have customized).
 
@@ -292,37 +300,32 @@ We embed two files from `lameandboard/rfid` verbatim (GPL-3.0-or-later, compatib
 
 | Source file | Destination | Used for |
 |---|---|---|
-| `extras/rfid_tag_parser.py` | `klippy/extras/nfc_gates/rfid_tag_parser.py` | Tag payload parsing, all 11 formats |
-| `extras/spoolman_client.py` | `klippy/extras/nfc_gates/lameandboard_spoolman.py` | Vendor/filament/spool CRUD building blocks |
+| `extras/rfid_tag_parser.py` | `klippy/extras/nfc_gates/vendor/rfid_tag_parser.py` | Tag payload parsing, all 11 formats |
+| `extras/spoolman_client.py` | `klippy/extras/nfc_gates/vendor/lameandboard_spoolman.py` | Vendor/filament/spool CRUD building blocks |
 
 ### `rfid_tag_parser.py` — drop-in, no adaptation needed
 
 Standard library only (+ optional `pycryptodome` for Bambu, `cbor2` for OpenPrintTag). No Klipper dependencies. Entry point:
 
 ```python
-from .rfid_tag_parser import parse_tag, is_parse_error
+from .vendor.rfid_tag_parser import parse_tag, is_parse_error
 
 info = parse_tag(raw_bytes_or_blocks, uid_hex=uid)
 ```
 
 `raw_bytes_or_blocks` is either raw NTAG user-memory bytes or an authenticated MIFARE Classic block dict. Returns a metadata dict or `None`. Logger name `rfid.rfid_tag_parser` routes through standard Python logging — no change needed.
 
-### `lameandboard_spoolman.py` — use building blocks, not the top-level `auto_create_spool()`
+### `lameandboard_spoolman.py` — use top-level creation, then patch our UID key
 
-Their `auto_create_spool()` hard-codes the `rfid_uid_N` multi-slot UID convention. We do not use it. Instead, our adapter calls their lower-level methods directly and controls the UID field name:
+Their `auto_create_spool()` can hard-code the `rfid_uid_N` multi-slot UID convention when `uid_hex` is provided. We call it with `uid_hex=None`, then patch our configured UID field through our Spoolman client:
 
 ```python
-from .lameandboard_spoolman import SpoolmanClient as LBSpoolmanClient
+from .vendor.lameandboard_spoolman import SpoolmanClient as LBSpoolmanClient
 
 lb = LBSpoolmanClient(base_url=our_resolved_url, timeout=self._timeout)
 
-vendor_id   = lb.find_or_create_vendor(vendor_name)
-filament_id = lb.find_or_create_filament(name=material, vendor_id=vendor_id, ...)
-spool       = lb.create_spool(
-    filament_id=filament_id,
-    remaining_weight=weight_g,
-    extra={self._rfid_key: uid}   # our rfid_tag convention, not their rfid_uid_N
-)
+spool_id = lb.auto_create_spool(current_tag.meta, uid_hex=None)
+self._spoolman.set_spool_uid(spool_id, uid)
 ```
 
 `our_resolved_url` comes from our existing `SpoolmanClient._resolve_base_url()` so Moonraker auto-discovery and URL normalization stay in one place.
@@ -337,7 +340,7 @@ Our client keeps everything it already has:
 - In-memory UID cache with TTL
 - `lookup_spool_by_uid()` — UID-to-spool resolution
 - `lookup_spool_by_id()` — direct spool ID fetch (expose existing `_fetch_spool_detail` as public)
-- `update_spool_location()` / `clear_spool_location()`
+- `set_spool_uid()` — patches this integration's configured RFID extra field after auto-create
 
 It does not gain vendor/filament/spool creation — those come from the embedded client.
 
@@ -444,12 +447,16 @@ The page/block read cost is paid only when `tag_parsing: True`. This is intentio
 tag_parsing:          False   ; True = read tag metadata pages/blocks and parse
                               ; False = UID only (current behavior, default)
 
+# Bambu/MIFARE authenticated rich reads
+bambu_reads:          False   ; True = allow Bambu Key-A auth/read when
+                              ; tag_parsing is True and pycryptodome is installed
+
 # Spoolman auto-create (only active when tag_parsing: True and Spoolman enabled)
 spoolman_auto_create: False   ; True = create filament/spool in Spoolman when
                               ; no existing match is found for a tag
 ```
 
-`tag_parsing` and `spoolman_auto_create` can be overridden per lane in `nfc_reader_hw.cfg`.
+`tag_parsing`, `bambu_reads`, and `spoolman_auto_create` can be overridden per lane in `nfc_reader_hw.cfg`.
 
 ---
 
@@ -462,6 +469,21 @@ spoolman_auto_create: False   ; True = create filament/spool in Spoolman when
 - Add or harden raw NTAG/Type 2 user-memory reads, using sequential `READ` commands up to `tag_max_pages`.
 - Add MIFARE Classic sector authentication and block-read support as a separate reader capability. The driver receives keys from the manager/adapter and uses those keys for `InDataExchange` auth/read commands; it does not derive the keys itself. If unavailable, MIFARE Classic tags fall back to UID-only resolution with a clear debug/warning message.
 - Pages/blocks and UID must be collected during the same tag presence. No later hardware read is part of the resolution ladder.
+
+### Logging conventions
+
+All new code in this integration must follow the existing debug level conventions:
+
+| Level | When to use |
+|---|---|
+| `logger.error(...)` | Unexpected exceptions — parse_tag raised, vendor import failed |
+| `logger.warning(...)` | Recoverable failures — NTAG read failed, empty read, auth failed, fallback taken |
+| `logger.info(...)` at `debug >= 3` | State changes visible to the user — UID read, parse result summary, Spoolman lookup result, resolution path taken |
+| `logger.debug(...)` at `debug >= 4` | Full detail — raw metadata dict, page-level read trace, every resolution step |
+
+Console output (`self._console(...)`) is reserved for user-facing events (spool found, tag not registered). It must not be used for internal resolution steps.
+
+---
 
 ### `nfc_manager.py`
 
@@ -481,16 +503,16 @@ spoolman_auto_create: False   ; True = create filament/spool in Spoolman when
 - Expose `_fetch_spool_detail` as public `lookup_spool_by_id(spool_id)` — needed for Step 1 (embedded ID resolution).
 - Continue to own URL resolution, circuit breaker, cache, and UID lookup. The resolved base URL is shared with the embedded client at call time so both use the same discovered URL.
 
-### `lameandboard_spoolman.py` (new, embedded verbatim)
+### `vendor/lameandboard_spoolman.py` (vendored verbatim)
 
-- Copied from `lameandboard/rfid extras/spoolman_client.py` at a pinned source commit.
+- Copied from `lameandboard/rfid extras/spoolman_client.py` at a pinned source commit into `klippy/extras/nfc_gates/vendor/`.
 - Used only for `find_or_create_vendor()`, `find_or_create_filament()`, and `create_spool()`.
 - `auto_create_spool()` is present in the file but **not called** — it encodes the `rfid_uid_N` convention we don't use.
 - Constructor receives `base_url` from our client's `_resolve_base_url()`.
 
-### `rfid_tag_parser.py` (new, embedded verbatim)
+### `vendor/rfid_tag_parser.py` (vendored verbatim)
 
-- Copied from `lameandboard/rfid extras/rfid_tag_parser.py` at a pinned source commit.
+- Copied from `lameandboard/rfid extras/rfid_tag_parser.py` at a pinned source commit into `klippy/extras/nfc_gates/vendor/`.
 - No changes needed. `parse_tag(raw, uid_hex)` is called directly from the manager adapter.
 
 ---
@@ -511,13 +533,13 @@ spoolman_auto_create: False   ; True = create filament/spool in Spoolman when
 
 ## Open Questions
 
-1. **Target classification table** — define the exact conservative ATQA/SAK/UID-length table used to select `ntag_type2`, `mifare_classic`, or `uid_only`. Unknown combinations must fall back to UID-only.
+1. **Target classification table** — the current implementation has a conservative table: `SAK & 0x08` selects MIFARE Classic, `SAK == 0x00` with a common UID length selects NTAG/Type-2, and everything else falls back UID-only. Hardware validation should tighten this only from observed PN532 target data.
 
 ---
 
 ## Implementation Order
 
-1. Copy `rfid_tag_parser.py` and `spoolman_client.py` from `lameandboard/rfid` into `klippy/extras/nfc_gates/` as `rfid_tag_parser.py` and `lameandboard_spoolman.py`. Record the source commit SHA in a `VENDORED.md` at repo root. Both files carry their original GPLv3 headers.
+1. Copy `rfid_tag_parser.py` and `spoolman_client.py` from `lameandboard/rfid` into `klippy/extras/nfc_gates/vendor/` as `rfid_tag_parser.py` and `lameandboard_spoolman.py`. Add an empty `vendor/__init__.py`. Record the source commit SHA in a `VENDORED.md` at repo root. Both files carry their original GPLv3 headers.
 2. Extend `GateState` with `current_tag` and add the parser adapter around `lameandboard/rfid.parse_tag()`.
 3. Extend `pn532_driver.py` so the manager can request target identity and raw NTAG/Type 2 memory reads behind `tag_parsing`.
 4. Add conservative target classification in `nfc_manager.py`: NTAG/Type 2, MIFARE Classic, or UID-only fallback.

@@ -20,6 +20,7 @@ or without pytest:
 
 import sys
 import os
+import re
 import types
 import tempfile
 
@@ -32,6 +33,11 @@ def _stub(name, **attrs):
         setattr(m, k, v)
     sys.modules[name] = m
     return m
+
+
+def _strip_html(text):
+    return re.sub(r'</?span[^>]*>', '', text)
+
 
 class _NullLogger:
     def debug(self, *a, **k): pass
@@ -77,7 +83,8 @@ _stub('nfc_gates.spoolman_client', SpoolmanClient=_MockSpoolmanClient)
 # so pytest collection order cannot leak stubs between files.
 sys.modules.pop('nfc_gates.nfc_manager', None)
 
-from nfc_gates.nfc_manager import GateState, NFCGate
+from nfc_gates.nfc_manager import (
+    GateState, NFCGate, _lane_instances, _lane_status_lines)
 
 
 # ── Test doubles ──────────────────────────────────────────────────────────────
@@ -217,6 +224,7 @@ def _make_gate(gate=0, scan_jog_mm=50.0, scan_max_mm=200.0,
     g._hh_load_paused     = False
     g._hh_confirmed_spool = None
     g._state              = GateState(gate)
+    g._spoolman           = None
     g.reactor             = MockReactor()
     g.printer             = MockPrinter()
     g._poll_timer         = g.reactor.register_timer(lambda e: g.reactor.NEVER)
@@ -236,6 +244,31 @@ def test_start_scan_acquires_lock():
     g._start_scan_mode()
     assert NFCGate._active_scan_gate == 0
 
+def test_start_scan_clears_hh_pause_so_reader_can_poll():
+    g = _make_gate()
+    g._state.current_uid = '04C19F92D32A81'
+    g._state.current_spool = 55
+    g._hh_load_paused = True
+
+    g._start_scan_mode()
+
+    assert not g._hh_load_paused
+    assert g._state.current_uid is None
+    assert g._state.current_spool is None
+    assert g._scan_previous_uid == '04C19F92D32A81'
+    assert g._scan_previous_spool == 55
+
+def test_paused_without_nfc_spool_does_not_skip_reader():
+    g = _make_gate()
+    g.printer.set_mmu(MockMMU(gate_status=[1], gate_spool_id=[55]))
+    g._hh_load_paused = True
+    g._state.current_spool = None
+
+    skipped = g._poll_hh_pause_check()
+
+    assert not skipped
+    assert not g._hh_load_paused
+
 def test_finish_scan_releases_lock():
     g = _make_gate()
     g._start_scan_mode()
@@ -247,6 +280,20 @@ def test_rewind_and_exit_releases_lock():
     g._start_scan_mode()
     g._rewind_and_exit_scan()
     assert NFCGate._active_scan_gate is None
+
+def test_no_tag_scan_restores_previous_nfc_spool():
+    g = _make_gate()
+    g.printer.set_mmu(MockMMU(gate_status=[1], gate_spool_id=[55]))
+    g._state.current_uid = '04C19F92D32A81'
+    g._state.current_spool = 55
+    g._hh_load_paused = True
+    g._start_scan_mode()
+
+    g._rewind_and_exit_scan()
+
+    assert g._state.current_uid == '04C19F92D32A81'
+    assert g._state.current_spool == 55
+    assert g._hh_load_paused
 
 def test_finish_holds_lock_until_rewind_check_gate_runs():
     g = _make_gate(gate=2)
@@ -301,6 +348,131 @@ def test_assigned_matching_spool_suspends_without_polling():
     assert g._hh_load_paused
     assert result == pytest_approx(130.0)
     assert '[polling suspended]' in g.status_line()
+
+def test_status_line_hh_empty_overrides_stale_nfc_cache():
+    """After eject, HH gate_status=0 should display empty even with cache."""
+    g = _make_gate()
+    g.printer.set_mmu(MockMMU(gate_status=[0], gate_spool_id=[55]))
+    g._state.current_uid = '04C19F92D32A81'
+    g._state.current_spool = 55
+    g._hh_load_paused = True
+
+    line = g.status_line()
+    plain = _strip_html(line)
+
+    assert 'Gate 0:  empty' in plain
+    assert 'spool 55       UID' not in plain
+    assert '[HH: spool 55  assigned]' in plain
+    assert '<span style="color:#87CEEB">empty</span>' in line
+    assert '<span style="color:#FFFF00">assigned</span>' in line
+
+def test_status_line_collapses_hh_assigned_cache_empty_note():
+    """HH assigned with no NFC cache should be one compact status block."""
+    g = _make_gate()
+    g.printer.set_mmu(MockMMU(gate_status=[0], gate_spool_id=[55]))
+
+    line = g.status_line()
+    plain = _strip_html(line)
+
+    assert '[HH has spool 55; NFC cache empty]' not in plain
+    assert '[HH: spool 55  assigned, NFC cache empty]' in plain
+    assert '<span style="color:#FFFF00">assigned</span>' in line
+
+def test_status_line_colors_hh_available_with_html_span():
+    g = _make_gate()
+    g.printer.set_mmu(MockMMU(gate_status=[1], gate_spool_id=[55]))
+    g._state.current_uid = '04C19F92D32A81'
+    g._state.current_spool = 55
+
+    line = g.status_line()
+
+    assert '<span style="color:#90EE90">available</span>' in line
+    assert 'HH: spool 55  available' in _strip_html(line)
+
+def test_hh_found_without_spool_does_not_clear_nfc_cache():
+    g = _make_gate()
+    g.printer.set_mmu(MockMMU(gate_status=[1], gate_spool_id=[-1]))
+    g._state.current_uid = '04C19F92D32A81'
+    g._state.current_spool = 55
+    g._hh_load_paused = True
+
+    skipped = g._poll_hh_pause_check()
+
+    assert skipped
+    assert g._state.current_uid == '04C19F92D32A81'
+    assert g._state.current_spool == 55
+    assert g._hh_load_paused
+    line = _strip_html(g.status_line())
+    assert 'HH: found/no spool' in line
+    assert '[NFC has spool 55; HH found/no spool]' in line
+
+def test_hh_found_with_nfc_spool_does_not_start_scan_jog():
+    g = _make_gate()
+    g.printer.set_mmu(MockMMU(gate_status=[1], gate_spool_id=[-1]))
+    g.printer.set_print_state('standby')
+    g._state.current_uid = '04C19F92D32A81'
+    g._state.current_spool = 55
+    g._prev_gate_status = 0
+    g._poll = lambda: False
+
+    result = g._poll_timer_event(100.0)
+
+    assert not g._scan_pending
+    assert not g._scan_mode
+    assert g._hh_load_paused
+    assert g._state.current_spool == 55
+    assert result == pytest_approx(130.0)
+
+def test_startup_hh_found_without_spool_allows_discovery_scan():
+    g = _make_gate()
+    g.printer.set_mmu(MockMMU(gate_status=[1], gate_spool_id=[-1]))
+    g._seed_cache_from_hh(100.0)
+
+    assert not g._hh_load_paused
+    assert g._state.current_spool is None
+    line = _strip_html(g.status_line())
+    assert 'Gate 0:  occupied' in line
+    assert '[polling]' in line
+    assert '[HH: found/no spool]' in line
+
+def test_hh_found_without_nfc_spool_starts_discovery_scan_jog():
+    g = _make_gate()
+    g.printer.set_mmu(MockMMU(gate_status=[1], gate_spool_id=[-1]))
+    g.printer.set_print_state('standby')
+    g._prev_gate_status = 0
+    g._poll = lambda: False
+
+    result = g._poll_timer_event(100.0)
+
+    assert not g._scan_mode
+    assert result == pytest_approx(100.1)
+
+    g.reactor._time = 100.1
+    result = g._poll_timer_event(100.1)
+
+    assert g._scan_mode
+    assert result == g.reactor.NEVER
+
+def test_lane_status_lines_matches_lane_mcus_without_crashing():
+    class StatusPrinter:
+        def lookup_objects(self, kind):
+            assert kind == 'mcu'
+            return [('mcu lane0', object()), ('mcu lane1', object())]
+
+    g = _make_gate()
+    g._name = 'lane0'
+    g.status_line = lambda: '  Gate 0:  empty   [polling]  [HH idle]'
+
+    old_lanes = list(_lane_instances)
+    try:
+        _lane_instances[:] = [g]
+        lines = _lane_status_lines(StatusPrinter())
+    finally:
+        _lane_instances[:] = old_lanes
+
+    assert lines[0] == 'NFC gate status — 2 MMU lane(s), 1 NFC reader(s) configured:'
+    assert 'Gate 0:  empty' in lines[1]
+    assert lines[2] == '  lane1:    no NFC reader configured'
 
 def test_cold_start_no_false_trigger():
     """prev=-1 → curr=1 must not trigger scan (prevents cold-start false fire)."""
@@ -451,7 +623,7 @@ def test_scan_starts_without_immediate_jog():
     g = _make_gate(gate=1, scan_max_mm=200.0)
     g._start_scan_mode()
     scripts = g.printer.gcode_scripts
-    assert len(scripts) == 0
+    assert not any('MMU_TEST_MOVE' in script for script in scripts)
     assert g._scan_mm_total == 0.0
     assert g._scan_next_chunk_time == pytest_approx(100.0)
 
@@ -472,8 +644,27 @@ def test_scan_step_issues_one_chunk_when_due():
     assert 'MMU_SELECT GATE=1' in scripts[0]
     assert 'MMU_TEST_MOVE MOVE=50.00' in scripts[0]
     assert g._scan_mm_total == 50.0
-    assert g._scan_next_chunk_time == pytest_approx(100.625)
+    assert g._scan_next_chunk_time == pytest_approx(102.125)
     assert result == pytest_approx(100.5)
+
+
+def test_scan_step_dwell_after_completed_chunk_before_next_jog():
+    """A completed jog gets three poll intervals of stationary read time."""
+    g = _make_gate(gate=1, scan_jog_mm=50.0, scan_max_mm=200.0,
+                   scan_poll_interval=0.5)
+    g._scan_mode = True
+    g._scan_mm_total = 50.0
+    g._scan_next_chunk_time = 102.125
+    g.reactor._time = 101.0
+    g.printer.set_print_state('standby')
+    g.printer.set_mmu(MockMMU(gear_short_move_speed=80.0))
+    g._poll = lambda: False
+
+    result = g._scan_step_event(101.0)
+
+    assert len(g.printer.gcode_scripts) == 0
+    assert g._scan_mm_total == 50.0
+    assert result == pytest_approx(101.5)
 
 def test_derived_lane_max_controls_final_chunk_size():
     """A lane Bowden length limits the last chunk instead of overshooting."""
@@ -490,7 +681,8 @@ def test_derived_lane_max_controls_final_chunk_size():
 
     assert g._scan_max_mm == 175.0
     assert g._scan_mm_total == 175.0
-    assert 'MMU_TEST_MOVE MOVE=25.00' in g.printer.gcode_scripts[0]
+    assert any('MMU_TEST_MOVE MOVE=25.00' in script
+               for script in g.printer.gcode_scripts)
 
 def test_scan_step_does_not_stack_chunks_before_interval():
     """Chunks are not queued until the calculated move interval has elapsed."""
@@ -690,6 +882,70 @@ def test_rewind_and_exit_clears_scan_mode():
     g._start_scan_mode()
     g._rewind_and_exit_scan()
     assert not g._scan_mode
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+# Item 8 — scan_jog finish: 5-tuple cached event with meta dispatches correctly
+# ─────────────────────────────────────────────────────────────────────────────
+
+class _DispatchCapture:
+    def __init__(self):
+        self.calls = []
+    def dispatch(self, event_type, gate, uid, spool, meta=None, auto_created=False):
+        self.calls.append((event_type, gate, uid, spool, meta))
+
+def test_finish_scan_metadata_direct_dispatches_meta():
+    """5-tuple scan_found_event with meta=dict passes meta to klipper.dispatch."""
+    g = _make_gate()
+    g._klipper = _DispatchCapture()
+    g._start_scan_mode()
+    meta = {'material': 'PLA', 'color_hex': 'FF5500'}
+    g._scan_found_event = ('changed', 0, '04AABB', None, meta)
+
+    g._finish_scan()
+
+    assert len(g._klipper.calls) == 1
+    ev = g._klipper.calls[0]
+    assert ev[0] == 'changed'
+    assert ev[1] == 0
+    assert ev[2] == '04AABB'
+    assert ev[3] is None
+    assert ev[4] == meta
+
+def test_finish_scan_spool_id_dispatches_no_meta():
+    """Normal spool_id event dispatches with meta=None."""
+    g = _make_gate()
+    g._klipper = _DispatchCapture()
+    g._start_scan_mode()
+    g._scan_found_event = ('changed', 0, '04AABB', 42, None)
+
+    g._finish_scan()
+
+    assert g._klipper.calls == [('changed', 0, '04AABB', 42, None)]
+    assert g._hh_load_paused
+    assert g._hh_confirmed_spool == 42
+
+def test_finish_scan_no_event_does_not_dispatch():
+    """When scan_found_event is None, klipper.dispatch is never called."""
+    g = _make_gate()
+    g._klipper = _DispatchCapture()
+    g._start_scan_mode()
+    g._scan_found_event = None
+
+    g._finish_scan()
+
+    assert g._klipper.calls == []
+
+def test_finish_scan_uid_only_event_dispatches_without_meta():
+    """uid_only event (tag unregistered in Spoolman) dispatches correctly."""
+    g = _make_gate()
+    g._klipper = _DispatchCapture()
+    g._start_scan_mode()
+    g._scan_found_event = ('uid_only', 0, '04AABB', None, None)
+
+    g._finish_scan()
+
+    assert g._klipper.calls == [('uid_only', 0, '04AABB', None, None)]
 
 
 # ── Approx helper (avoids pytest dependency for float comparison) ─────────────

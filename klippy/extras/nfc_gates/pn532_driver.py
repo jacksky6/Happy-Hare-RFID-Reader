@@ -79,9 +79,13 @@
 #
 # I2C address and wiring
 # ──────────────────────
-# The PN532 default I2C address is 0x24 (7-bit).  Some breakout boards expose
-# address-select pads to choose among 0x24–0x27.  For multiple readers on one
-# bus use a TCA9548A 1-to-8 I2C multiplexer.
+# The PN532 I2C address is fixed at 0x24 (decimal 36) by the chip — it cannot
+# be changed.  The two pads/jumpers on the breakout board (SEL0/SEL1, sometimes
+# labeled A0/A1) select the communication protocol, not the address:
+#
+#   SEL0=1, SEL1=0 → I2C  (address fixed at 0x24)
+#   SEL0=0, SEL1=0 → SPI
+#   SEL0=0, SEL1=1 → HSU/UART
 #
 # EBB42 v1.x I2C1 pins: SCL = PB6, SDA = PB7.
 #
@@ -114,6 +118,8 @@ PN532_COMMAND_INRELEASE = 0x52
 # MIFARE/NTAG commands, mirrored from HH_code/pn532.py.
 MIFARE_CMD_READ = 0x30
 MIFARE_ULTRALIGHT_CMD_WRITE = 0xA2
+MIFARE_CMD_AUTH_A = 0x60
+MIFARE_CMD_AUTH_B = 0x61
 
 PN532_ACK = [0x00, 0x00, 0xFF, 0x00, 0xFF, 0x00]
 
@@ -503,6 +509,175 @@ class _PN532Base:
             return user_data
         finally:
             self._release_current_target(reason="user_memory_complete")
+
+    @staticmethod
+    def _ndef_tlv_extent(data):
+        """Return (tlv_bytes, ndef_len) for the first complete/partial NDEF TLV."""
+        i = 0
+        data_len = len(data)
+        while i < data_len:
+            t = data[i]
+            if t == 0x00:  # NULL TLV
+                i += 1
+                continue
+            if t == 0xFE:  # Terminator TLV
+                return None
+            if i + 1 >= data_len:
+                return None
+            l = data[i + 1]
+            if l == 0xFF:
+                if i + 3 >= data_len:
+                    return None
+                l = (data[i + 2] << 8) | data[i + 3]
+                value_start = i + 4
+            else:
+                value_start = i + 2
+            value_end = value_start + l
+            if t == 0x03:
+                return value_end, l
+            i = value_end
+        return None
+
+    def ntag_read_ndef_user_memory(self, start_page=4, max_pages=16,
+                                   max_ndef_pages=135):
+        """
+        Read NTAG user memory, expanding to the NDEF TLV's advertised length.
+
+        The first read grabs enough bytes to inspect the Type-2 TLV header.  If
+        an NDEF TLV (0x03) is present, the advertised NDEF length determines how
+        many user-memory pages are read.  max_pages is the fallback window for
+        non-NDEF/binary formats; max_ndef_pages is a hard safety cap for NDEF.
+        """
+        max_pages = max(4, int(max_pages))
+        max_ndef_pages = max(max_pages, int(max_ndef_pages))
+        fallback_bytes = max_pages * 4
+        max_ndef_bytes = max_ndef_pages * 4
+        user_data = bytearray()
+        target_bytes = min(16, fallback_bytes)
+        ndef_len = None
+        try:
+            current_page = start_page
+            while len(user_data) < target_bytes:
+                page_data = self.robust_page_read(current_page)
+                if not page_data:
+                    break
+                user_data.extend(page_data)
+
+                extent = self._ndef_tlv_extent(user_data)
+                if extent is not None:
+                    target_bytes, ndef_len = extent
+                    if target_bytes > max_ndef_bytes:
+                        if self._debug >= 3:
+                            logger.info(
+                                "ntag_read_ndef_user_memory: gate %d (%s) "
+                                "NDEF length=%d requires %d bytes; capped at "
+                                "%d bytes by max_ndef_pages",
+                                self._gate, self._transport_name, ndef_len,
+                                target_bytes, max_ndef_bytes)
+                        target_bytes = max_ndef_bytes
+                elif len(user_data) >= 16:
+                    # No NDEF TLV in the initial chunk. Preserve the older
+                    # fixed-window behavior for binary/non-NDEF tag formats.
+                    target_bytes = fallback_bytes
+
+                current_page += 4
+                if current_page > 255:
+                    break
+                time.sleep(0.005)
+
+            result = user_data[:min(len(user_data), target_bytes)]
+            if self._debug >= 4 and ndef_len is not None:
+                logger.debug(
+                    "ntag_read_ndef_user_memory: gate %d (%s) "
+                    "NDEF length=%d read=%d bytes",
+                    self._gate, self._transport_name, ndef_len, len(result))
+            return result
+        finally:
+            self._release_current_target(reason="ndef_user_memory_complete")
+
+    def mifare_authenticate(self, block_addr, key, use_key_b=False):
+        """Authenticate a MIFARE Classic sector using InDataExchange.
+
+        block_addr is any block in the target sector (typically the sector trailer).
+        key is a 6-byte sequence (list or bytes).  Returns True on success.
+        """
+        if self.current_target is None:
+            return False
+        auth_cmd = MIFARE_CMD_AUTH_B if use_key_b else MIFARE_CMD_AUTH_A
+        uid = list(self.current_uid or [])[:4]
+        cmd = ([_CMD_INDATAEXCHANGE, self.current_target, auth_cmd,
+                block_addr & 0xFF]
+               + list(key)[:6] + uid)
+        payload = self._transceive(cmd, 0x41, read_len=12, timeout=1.0)
+        if not payload or payload[0] != 0x00:
+            if self._debug >= 3 and payload:
+                logger.info(
+                    "mifare_authenticate: gate %d (%s) block=%d key_%s "
+                    "status=0x%02X",
+                    self._gate, self._transport_name, block_addr,
+                    'B' if use_key_b else 'A', payload[0])
+            return False
+        return True
+
+    def mifare_read_block(self, block_addr):
+        """Read 16 bytes from a MIFARE Classic block (sector must be pre-authenticated).
+
+        Returns bytes of length 16, or None on error.
+        """
+        if self.current_target is None:
+            return None
+        cmd = [_CMD_INDATAEXCHANGE, self.current_target,
+               MIFARE_CMD_READ, block_addr & 0xFF]
+        payload = self._transceive(cmd, 0x41,
+                                   read_len=_MAX_RESPONSE_BYTES, timeout=1.0)
+        if not payload or payload[0] != 0x00 or len(payload) < 17:
+            return None
+        return bytes(payload[1:17])
+
+    def mifare_read_authenticated_blocks(self, sector_keys, sectors, uid_bytes=None):
+        """Authenticate and read data blocks from the given sectors.
+
+        sector_keys : list of 16 × 6-byte Key-A values (index = sector number).
+        sectors     : list of sector numbers to read (e.g. [0, 1, 2, 3, 4]).
+        uid_bytes   : tag UID bytes (4 bytes for MIFARE Classic 1K); stored in
+                      the returned dict for parse_tag().
+
+        Returns {"uid_bytes": bytes, "blocks": {abs_block_index: bytes}} where
+        abs_block_index is the absolute block number (0-63 for MIFARE Classic 1K).
+        Sector trailer blocks (4*s+3) are never included.  Failed sectors are
+        skipped.  Returns None when no blocks could be read at all.
+
+        Releases the target in a finally block (same pattern as ntag_read_user_memory).
+        """
+        blocks = {}
+        try:
+            for sector in sectors:
+                trailer = sector * 4 + 3
+                key = sector_keys[sector] if sector < len(sector_keys) else None
+                if key is None:
+                    continue
+                if not self.mifare_authenticate(trailer, key):
+                    if self._debug >= 3:
+                        logger.info(
+                            "mifare_read_authenticated_blocks: gate %d (%s) "
+                            "sector %d auth failed — skipping",
+                            self._gate, self._transport_name, sector)
+                    continue
+                for blk_offset in range(3):
+                    block_addr = sector * 4 + blk_offset
+                    data = self.mifare_read_block(block_addr)
+                    if data is not None:
+                        blocks[block_addr] = data
+                    elif self._debug >= 3:
+                        logger.info(
+                            "mifare_read_authenticated_blocks: gate %d (%s) "
+                            "block %d read failed",
+                            self._gate, self._transport_name, block_addr)
+            if not blocks:
+                return None
+            return {"uid_bytes": bytes(uid_bytes or []), "blocks": blocks}
+        finally:
+            self._release_current_target(reason="mifare_read_complete")
 
     # ─────────────────────────────────────────────────────────────────────────
     # Initialisation and lifecycle
@@ -1023,6 +1198,20 @@ class PN532SPIDriver(_PN532Base):
     # ─────────────────────────────────────────────────────────────────────────
     # SPI transport
     # ─────────────────────────────────────────────────────────────────────────
+    #WORK IN PROGRESS — NOT IMPLEMENTED / NOT SUPPORTED -------------------------
+    # ██╗    ██╗ ██████╗ ██████╗ ██╗  ██╗     ██╗███╗   ██╗
+    # ██║    ██║██╔═══██╗██╔══██╗██║ ██╔╝     ██║████╗  ██║
+    # ██║ █╗ ██║██║   ██║██████╔╝█████╔╝      ██║██╔██╗ ██║
+    # ██║███╗██║██║   ██║██╔══██╗██╔═██╗      ██║██║╚██╗██║
+    # ╚███╔███╔╝╚██████╔╝██║  ██║██║  ██╗     ██║██║ ╚████║
+    #  ╚══╝╚══╝  ╚═════╝ ╚═╝  ╚═╝╚═╝  ╚═╝     ╚═╝╚═╝  ╚═══╝
+    #
+    # ██████╗ ██████╗  ██████╗  ██████╗ ██████╗ ███████╗███████╗███████╗
+    # ██╔══██╗██╔══██╗██╔═══██╗██╔════╝ ██╔══██╗██╔════╝██╔════╝██╔════╝
+    # ██████╔╝██████╔╝██║   ██║██║  ███╗██████╔╝█████╗  ███████╗███████╗
+    # ██╔═══╝ ██╔══██╗██║   ██║██║   ██║██╔══██╗██╔══╝  ╚════██║╚════██║
+    # ██║     ██║  ██║╚██████╔╝╚██████╔╝██║  ██║███████╗███████║███████║
+    # ╚═╝     ╚═╝  ╚═╝ ╚═════╝  ╚═════╝ ╚═╝  ╚═╝╚══════╝╚══════╝╚══════╝
 
     def _send(self, cmd_and_params):
         """Write a command frame to the PN532 (direction byte 0x01)."""
@@ -1142,7 +1331,7 @@ class PN532SPIDriver(_PN532Base):
         return None
 
     # ─────────────────────────────────────────────────────────────────────────
-    # Low-level SPI debug tools
+    # Low-level SPI debug tools -- WIP, not implementtedho
     # ─────────────────────────────────────────────────────────────────────────
 
     def low_level_raw_write(self, data):

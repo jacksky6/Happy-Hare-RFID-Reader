@@ -1,0 +1,658 @@
+# klippy/extras/nfc_gates/tag_handler.py
+#
+# EMU NFC Gate Reader — tag reading and spool resolution pipeline
+# Copyright (C) 2026  WoodWorker
+# SPDX-License-Identifier: GPL-3.0-or-later
+#
+# All functions follow the scan_jog.py convention: receive the NFCGate instance
+# as their first argument so they can access gate state without subclassing.
+#
+# Pipeline order (called from NFCGate._poll via delegates):
+#
+#   read_current_tag(gate)   — hardware read + metadata capture
+#   resolve_spool(gate, uid) — resolution ladder: embedded ID → UID → auto-create → metadata-direct
+
+import inspect
+
+from .gate_state import CurrentTag, DIRECT_METADATA_SPOOL
+from .log import logger
+
+
+# ── NTAG / NDEF helpers ───────────────────────────────────────────────────────
+
+def _find_ndef_tlv(data):
+    if data is None:
+        return None
+    raw = bytes(data)
+    i = 0
+    while i < len(raw):
+        t = raw[i]
+        if t == 0x00:
+            i += 1
+            continue
+        if t == 0xFE:
+            return None
+        if i + 1 >= len(raw):
+            return None
+        length = raw[i + 1]
+        if length == 0xFF:
+            if i + 3 >= len(raw):
+                return None
+            length = (raw[i + 2] << 8) | raw[i + 3]
+            value_start = i + 4
+        else:
+            value_start = i + 2
+        value_end = value_start + length
+        if t == 0x03:
+            if value_end > len(raw):
+                return {
+                    'complete': False,
+                    'ndef_len': length,
+                    'tlv_len': value_end,
+                    'payload': raw[value_start:],
+                }
+            return {
+                'complete': True,
+                'ndef_len': length,
+                'tlv_len': value_end,
+                'payload': raw[value_start:value_end],
+            }
+        if value_end > len(raw):
+            return None
+        i = value_end
+    return None
+
+
+def _decode_ndef_text_records(ndef):
+    records = []
+    idx = 0
+    while idx < len(ndef):
+        header = ndef[idx]
+        idx += 1
+        sr = bool(header & 0x10)
+        il = bool(header & 0x08)
+        tnf = header & 0x07
+        if idx >= len(ndef):
+            break
+        type_len = ndef[idx]
+        idx += 1
+        if sr:
+            if idx >= len(ndef):
+                break
+            payload_len = ndef[idx]
+            idx += 1
+        else:
+            if idx + 4 > len(ndef):
+                break
+            payload_len = int.from_bytes(ndef[idx:idx + 4], 'big')
+            idx += 4
+        id_len = 0
+        if il:
+            if idx >= len(ndef):
+                break
+            id_len = ndef[idx]
+            idx += 1
+        rec_type = ndef[idx:idx + type_len]
+        idx += type_len + id_len
+        payload = ndef[idx:idx + payload_len]
+        idx += payload_len
+        if tnf == 0x01 and rec_type == b'T' and payload:
+            status = payload[0]
+            lang_len = status & 0x3F
+            encoding = 'utf-16' if status & 0x80 else 'utf-8'
+            text_payload = payload[1 + lang_len:]
+            try:
+                records.append(text_payload.decode(encoding, errors='replace'))
+            except Exception:
+                records.append(text_payload.decode('utf-8', errors='replace'))
+        if header & 0x40:  # ME
+            break
+    return records
+
+
+def _single_line_preview(text, limit=300):
+    text = ' '.join(str(text).replace('\x00', '').split())
+    if len(text) <= limit:
+        return text
+    return text[:limit - 3] + '...'
+
+
+_META_SUMMARY_KEYS = (
+    'tag_format', 'brand', 'vendor', 'material', 'material_detail',
+    'material_id', 'material_variant_id', 'sku', 'color_hex',
+    'diameter_mm', 'weight_g', 'spool_weight_g', 'tray_uid',
+    'spoolman_id', 'parse_warning', 'parse_error', 'error',
+)
+
+
+def _summarize_meta(meta):
+    if not isinstance(meta, dict):
+        return {}
+    return {k: meta.get(k) for k in _META_SUMMARY_KEYS
+            if meta.get(k) not in (None, '')}
+
+
+def _raw_tag_summary(raw):
+    if isinstance(raw, dict):
+        blocks = raw.get('blocks') or {}
+        block_indexes = sorted(blocks.keys())
+        return {
+            'kind': 'mifare_blocks',
+            'block_count': len(block_indexes),
+            'blocks': block_indexes,
+            'uid_bytes_len': len(raw.get('uid_bytes') or b''),
+        }
+    try:
+        raw_bytes = bytes(raw)
+    except Exception:
+        return {'kind': type(raw).__name__}
+    return {'kind': 'bytes', 'length': len(raw_bytes)}
+
+
+def _raw_tag_preview(raw, limit=96):
+    if isinstance(raw, dict):
+        blocks = raw.get('blocks') or {}
+        preview = {}
+        for block_index in sorted(blocks.keys())[:8]:
+            data = blocks.get(block_index) or b''
+            try:
+                preview[block_index] = bytes(data).hex().upper()
+            except Exception:
+                preview[block_index] = repr(data)
+        return preview
+    try:
+        raw_bytes = bytes(raw)
+    except Exception:
+        return repr(raw)
+    suffix = '...' if len(raw_bytes) > limit else ''
+    return raw_bytes[:limit].hex().upper() + suffix
+
+
+def _parse_attempt_summary(raw):
+    if isinstance(raw, dict):
+        return ('authenticated MIFARE blocks: Bambu, Creality CFS, '
+                'then QIDI Box')
+    return ('raw bytes: ELEGOO, Anycubic ACE, NDEF MIME/Text/URI, '
+            'Creality CFS, QIDI Box, Bambu heuristic, then raw UTF-8 JSON/URL')
+
+
+def _trace_for_gate(gate, prefix):
+    def _trace(level, msg, *args):
+        if level == 'debug':
+            if gate._debug >= 4:
+                logger.debug(prefix + msg, *args)
+            return
+        if gate._debug >= 3:
+            logger.info(prefix + msg, *args)
+    return _trace
+
+
+def _accepts_kwarg(callable_obj, name):
+    try:
+        sig = inspect.signature(callable_obj)
+    except (TypeError, ValueError):
+        return False
+    for param in sig.parameters.values():
+        if param.kind == inspect.Parameter.VAR_KEYWORD:
+            return True
+        if param.name == name:
+            return True
+    return False
+
+
+# ── Tag classification ────────────────────────────────────────────────────────
+
+def classify_tag_target(gate, target_info):
+    if not isinstance(target_info, dict):
+        return 'uid_only'
+    try:
+        sak = int(target_info.get('sak', 0)) & 0xFF
+        uid_length = int(target_info.get('uid_length', 0))
+    except (TypeError, ValueError):
+        return 'uid_only'
+    # Conservative ISO14443A split:
+    #   SAK bit 0x08 marks MIFARE Classic-compatible targets.
+    #   SAK 0x00 is the common Type-2 / Ultralight / NTAG case.
+    if sak & 0x08:
+        return 'mifare_classic'
+    if sak == 0x00 and uid_length in (4, 7, 10):
+        return 'ntag_type2'
+    return 'uid_only'
+
+
+# ── Hardware helpers ──────────────────────────────────────────────────────────
+
+def release_reader_target(gate, reason):
+    release = getattr(gate._reader, '_release_current_target', None)
+    if release is not None:
+        try:
+            release(reason=reason)
+        except TypeError:
+            release()
+        except Exception as e:
+            if gate._debug >= 4:
+                logger.debug(
+                    "nfc_gate: [%s] gate %d — target release failed "
+                    "(%s): %s", gate._name, gate._gate, reason, e)
+
+
+# ── Metadata capture ─────────────────────────────────────────────────────────
+
+def parse_current_tag(gate, tag):
+    uid_hex = tag.uid
+    if not tag.raw_tag_data:
+        tag.meta = {'uid': uid_hex}
+        if gate._debug >= 3:
+            logger.info(
+                "nfc_gate: [%s] gate %d — uid=%s  parse_tag skipped: no raw tag data",
+                gate._name, gate._gate, uid_hex)
+        return
+    try:
+        from .vendor.rfid_tag_parser import parse_tag
+        raw = (bytes(tag.raw_tag_data)
+               if isinstance(tag.raw_tag_data, (bytes, bytearray))
+               else tag.raw_tag_data)
+        if gate._debug >= 3:
+            logger.info(
+                "nfc_gate: [%s] gate %d — uid=%s  parse_tag begin raw=%s",
+                gate._name, gate._gate, uid_hex, _raw_tag_summary(raw))
+        if gate._debug >= 4:
+            logger.debug(
+                "nfc_gate: [%s] gate %d — uid=%s  raw tag preview: %s",
+                gate._name, gate._gate, uid_hex, _raw_tag_preview(raw))
+            logger.debug(
+                "nfc_gate: [%s] gate %d — uid=%s  parse_tag attempt order: %s",
+                gate._name, gate._gate, uid_hex, _parse_attempt_summary(raw))
+        if _accepts_kwarg(parse_tag, 'trace'):
+            info = parse_tag(
+                raw,
+                uid_hex=uid_hex,
+                trace=_trace_for_gate(
+                    gate,
+                    "nfc_gate: [%s] gate %d — uid=%s  rfid_tag_parser: " %
+                    (gate._name, gate._gate, uid_hex)))
+        else:
+            info = parse_tag(raw, uid_hex=uid_hex)
+        if isinstance(info, dict) and 'uid' not in info:
+            info = dict(info)
+            info['uid'] = uid_hex
+        if info is None:
+            tag.meta = {'uid': uid_hex}
+            tag.parse_error = None
+            if gate._debug >= 3:
+                logger.info(
+                    "nfc_gate: [%s] gate %d — uid=%s  parse_tag result: unrecognised format",
+                    gate._name, gate._gate, uid_hex)
+        else:
+            tag.meta = info
+            tag.parse_error = info.get('parse_error') or info.get('error')
+        if gate._debug >= 3:
+            logger.info("nfc_gate: [%s] gate %d — uid=%s  parsed tag meta: %s",
+                        gate._name, gate._gate, uid_hex, _summarize_meta(tag.meta))
+        if gate._debug >= 4:
+            logger.debug("nfc_gate: [%s] gate %d — uid=%s  full meta: %s",
+                         gate._name, gate._gate, uid_hex, tag.meta)
+    except Exception as e:
+        tag.parse_error = 'parse failed: {}'.format(e)
+        logger.error("nfc_gate: [%s] gate %d — uid=%s  parse_tag raised: %s",
+                     gate._name, gate._gate, uid_hex, e)
+
+
+def capture_ntag_metadata(gate, tag):
+    uid_hex = tag.uid
+    try:
+        read_ndef = getattr(gate._reader, 'ntag_read_ndef_user_memory', None)
+        if read_ndef is not None:
+            raw = read_ndef(start_page=4, max_pages=gate._tag_max_pages)
+        else:
+            raw = gate._reader.ntag_read_user_memory(
+                start_page=4, end_page=4 + gate._tag_max_pages - 1)
+        tag.raw_tag_data = raw
+        if gate._debug >= 3:
+            tlv = _find_ndef_tlv(raw)
+            if tlv is not None:
+                logger.info(
+                    "nfc_gate: [%s] gate %d — uid=%s  NTAG read %d bytes "
+                    "(NDEF length=%d, %s)",
+                    gate._name, gate._gate, uid_hex, len(raw),
+                    tlv['ndef_len'], 'complete' if tlv['complete'] else 'partial')
+                for text in _decode_ndef_text_records(tlv['payload']):
+                    logger.info(
+                        "nfc_gate: [%s] gate %d — uid=%s  NDEF text: %s",
+                        gate._name, gate._gate, uid_hex,
+                        _single_line_preview(text))
+            else:
+                logger.info("nfc_gate: [%s] gate %d — uid=%s  NTAG read %d bytes",
+                            gate._name, gate._gate, uid_hex, len(raw))
+    except Exception as e:
+        tag.parse_error = 'ntag read failed: {}'.format(e)
+        tag.meta = {'uid': uid_hex}
+        logger.warning("nfc_gate: [%s] gate %d — uid=%s  NTAG read failed: %s",
+                       gate._name, gate._gate, uid_hex, e)
+        return
+    if not raw:
+        tag.parse_error = 'empty ntag read'
+        tag.meta = {'uid': uid_hex}
+        logger.warning("nfc_gate: [%s] gate %d — uid=%s  NTAG read returned no data",
+                       gate._name, gate._gate, uid_hex)
+        return
+    parse_current_tag(gate, tag)
+
+
+def resolve_auth_keys(gate, tag):
+    """Derive MIFARE sector Key-A values for a Bambu tag via HKDF.
+
+    Returns (keys, None) on success, (None, reason_str) on failure.
+    """
+    try:
+        from .vendor.rfid_tag_parser import _bambu_derive_keys
+        uid_bytes = bytes((tag.target_info or {}).get('uid_bytes') or [])
+        if len(uid_bytes) < 4:
+            return None, ('uid_bytes too short for Bambu key derivation '
+                          '(%d bytes)' % len(uid_bytes))
+        keys = _bambu_derive_keys(uid_bytes)
+        return keys, None
+    except ImportError as e:
+        return None, 'pycryptodome not installed: %s' % e
+    except Exception as e:
+        return None, 'key derivation failed: %s' % e
+
+
+def capture_mifare_metadata(gate, tag, sector_keys):
+    uid_hex   = tag.uid
+    uid_bytes = bytes((tag.target_info or {}).get('uid_bytes') or [])
+    try:
+        block_dict = gate._reader.mifare_read_authenticated_blocks(
+            sector_keys, sectors=[0, 1, 2, 3, 4], uid_bytes=uid_bytes)
+    except Exception as e:
+        tag.parse_error = 'mifare read failed: %s' % e
+        tag.meta = {'uid': uid_hex}
+        logger.warning(
+            "nfc_gate: [%s] gate %d — uid=%s  MIFARE read failed: %s",
+            gate._name, gate._gate, uid_hex, e)
+        return
+    if not block_dict or not block_dict.get('blocks'):
+        tag.parse_error = 'mifare read returned no blocks'
+        tag.meta = {'uid': uid_hex}
+        logger.warning(
+            "nfc_gate: [%s] gate %d — uid=%s  MIFARE read returned no "
+            "blocks (auth failed on all sectors?)",
+            gate._name, gate._gate, uid_hex)
+        return
+    tag.raw_tag_data = block_dict
+    if gate._debug >= 3:
+        logger.info(
+            "nfc_gate: [%s] gate %d — uid=%s  MIFARE read %d blocks",
+            gate._name, gate._gate, uid_hex, len(block_dict['blocks']))
+    parse_current_tag(gate, tag)
+
+
+# ── Tag read entry point ──────────────────────────────────────────────────────
+
+def read_current_tag(gate):
+    if not gate._tag_parsing:
+        return gate._reader.read_tag()
+
+    target_info = gate._reader.read_target()
+    if target_info is None:
+        return None
+
+    uid_hex = target_info.get('uid')
+    if not uid_hex:
+        release_reader_target(gate, "missing_uid")
+        return None
+
+    tag = CurrentTag(uid=uid_hex, target_info=dict(target_info))
+    tag.meta = {'uid': uid_hex}
+    gate._state.current_tag = tag
+
+    strategy = classify_tag_target(gate, target_info)
+    if gate._debug >= 3:
+        logger.info(
+            "nfc_gate: [%s] gate %d — uid=%s  target strategy=%s "
+            "SAK=0x%02X ATQA=0x%04X",
+            gate._name, gate._gate, uid_hex, strategy,
+            int(target_info.get('sak', 0) or 0),
+            int(target_info.get('atqa', target_info.get('sens_res', 0)) or 0))
+
+    if strategy == 'ntag_type2':
+        capture_ntag_metadata(gate, tag)
+    elif strategy == 'mifare_classic':
+        if not gate._bambu_reads:
+            tag.parse_error = 'mifare_classic rich read disabled; uid-only fallback'
+            release_reader_target(gate, "mifare_disabled")
+            if gate._debug >= 3:
+                logger.info(
+                    "nfc_gate: [%s] gate %d — uid=%s  MIFARE Classic "
+                    "target seen but bambu_reads is disabled; UID-only fallback",
+                    gate._name, gate._gate, uid_hex)
+            return uid_hex
+        keys, reason = resolve_auth_keys(gate, tag)
+        if keys is None:
+            tag.parse_error = 'mifare auth key derivation failed: %s' % reason
+            release_reader_target(gate, "mifare_key_failure")
+            if gate._debug >= 3:
+                logger.info(
+                    "nfc_gate: [%s] gate %d — uid=%s  MIFARE key "
+                    "derivation failed: %s; UID-only fallback",
+                    gate._name, gate._gate, uid_hex, reason)
+        else:
+            if gate._debug >= 3:
+                logger.info(
+                    "nfc_gate: [%s] gate %d — uid=%s  MIFARE Classic "
+                    "Bambu keys derived; reading sectors 0-4",
+                    gate._name, gate._gate, uid_hex)
+            capture_mifare_metadata(gate, tag, keys)
+    else:
+        tag.parse_error = 'unsupported target; uid-only fallback'
+        release_reader_target(gate, "unsupported_uid_only_fallback")
+        if gate._debug >= 3:
+            logger.info(
+                "nfc_gate: [%s] gate %d — uid=%s  unsupported target; "
+                "UID-only fallback", gate._name, gate._gate, uid_hex)
+
+    return uid_hex
+
+
+# ── Spool resolution ladder ───────────────────────────────────────────────────
+
+def resolve_spool(gate, uid_hex):
+    if uid_hex is None:
+        return None
+    tag = gate._state.current_tag
+    if tag is not None and tag.uid != uid_hex:
+        tag = None
+    meta = {}
+    if gate._tag_parsing and tag is not None and isinstance(tag.meta, dict):
+        meta = tag.meta
+    material = str(meta.get('material') or meta.get('type') or '').strip()
+    color    = str(meta.get('color_hex') or meta.get('color') or '').strip()
+
+    if gate._debug >= 3:
+        logger.info(
+            "nfc_gate: [%s] gate %d — uid=%s  resolve_spool begin "
+            "metadata=%s tag_parse_error=%s",
+            gate._name, gate._gate, uid_hex, _summarize_meta(meta),
+            getattr(tag, 'parse_error', None) if tag is not None else None)
+
+    if gate._spoolman is None:
+        if material or color:
+            if tag is not None:
+                tag.resolution = {'path': 'metadata_direct'}
+            if gate._debug >= 3:
+                logger.info(
+                    "nfc_gate: [%s] gate %d — uid=%s  no Spoolman; "
+                    "using tag metadata material=%s color=%s",
+                    gate._name, gate._gate, uid_hex, material, color)
+            return DIRECT_METADATA_SPOOL
+        if gate._debug >= 3:
+            logger.info("nfc_gate: [%s] gate %d — uid=%s  no Spoolman configured",
+                        gate._name, gate._gate, uid_hex)
+        return None
+
+    spoolman_id = meta.get('spoolman_id')
+    if spoolman_id not in (None, ''):
+        if gate._debug >= 3:
+            logger.info(
+                "nfc_gate: [%s] gate %d — uid=%s  resolution step: "
+                "checking embedded spoolman_id=%r",
+                gate._name, gate._gate, uid_hex, spoolman_id)
+        try:
+            spoolman_id = int(spoolman_id)
+        except (TypeError, ValueError):
+            spoolman_id = None
+            logger.warning(
+                "nfc_gate: [%s] gate %d — uid=%s  invalid embedded "
+                "spoolman_id=%r; falling back to UID lookup",
+                gate._name, gate._gate, uid_hex, meta.get('spoolman_id'))
+        if spoolman_id is not None:
+            spool = gate._spoolman.lookup_spool_by_id(spoolman_id)
+            if spool:
+                raw_id = spool.get('id', spoolman_id)
+                try:
+                    resolved_id = int(raw_id)
+                except (TypeError, ValueError):
+                    resolved_id = spoolman_id
+                if tag is not None:
+                    tag.resolution = {'path': 'embedded_spoolman_id',
+                                      'spool_id': resolved_id}
+                if gate._debug >= 3:
+                    logger.info(
+                        "nfc_gate: [%s] gate %d — uid=%s  "
+                        "embedded spoolman_id=%s resolved",
+                        gate._name, gate._gate, uid_hex, resolved_id)
+                return resolved_id
+            if gate._debug >= 3:
+                logger.info(
+                    "nfc_gate: [%s] gate %d — uid=%s  "
+                    "embedded spoolman_id=%s not found; falling back",
+                    gate._name, gate._gate, uid_hex, spoolman_id)
+
+    if gate._debug >= 3:
+        logger.info(
+            "nfc_gate: [%s] gate %d — uid=%s  resolution step: "
+            "checking Spoolman extra UID field %s",
+            gate._name, gate._gate, uid_hex, gate._spoolman._rfid_key)
+    spool_id = gate._spoolman.lookup_spool_by_uid(uid_hex)
+    if spool_id is not None:
+        if tag is not None:
+            tag.resolution = {'path': 'uid_lookup', 'spool_id': spool_id}
+        if gate._debug >= 3:
+            logger.info("nfc_gate: [%s] gate %d — uid=%s  Spoolman→spool_id=%s",
+                        gate._name, gate._gate, uid_hex, spool_id)
+        return spool_id
+    if gate._debug >= 3:
+        logger.info(
+            "nfc_gate: [%s] gate %d — uid=%s  UID lookup found no spool; "
+            "checking whether metadata can create or directly represent a spool "
+            "(material=%r color=%r)",
+            gate._name, gate._gate, uid_hex, material, color)
+
+    try:
+        base_url = gate._spoolman._resolve_base_url()
+    except Exception as e:
+        base_url = None
+        logger.warning(
+            "nfc_gate: [%s] gate %d — uid=%s  Spoolman URL resolution failed: %s",
+            gate._name, gate._gate, uid_hex, e)
+    if not base_url and (material or color):
+        if tag is not None:
+            tag.resolution = {'path': 'metadata_direct'}
+        if gate._debug >= 3:
+            logger.info(
+                "nfc_gate: [%s] gate %d — uid=%s  Spoolman disabled "
+                "or undiscovered; using tag metadata material=%s color=%s",
+                gate._name, gate._gate, uid_hex, material, color)
+        return DIRECT_METADATA_SPOOL
+
+    if gate._spoolman_auto_create and material:
+        if base_url:
+            try:
+                from .vendor.lameandboard_spoolman import (
+                    SpoolmanClient as LBSpoolmanClient)
+                if _accepts_kwarg(LBSpoolmanClient, 'trace'):
+                    lb = LBSpoolmanClient(
+                        base_url=base_url,
+                        timeout=gate._spoolman._timeout,
+                        trace=_trace_for_gate(
+                            gate,
+                            "nfc_gate: [%s] gate %d — uid=%s  " %
+                            (gate._name, gate._gate, uid_hex)))
+                else:
+                    lb = LBSpoolmanClient(base_url=base_url,
+                                          timeout=gate._spoolman._timeout)
+                if gate._debug >= 3:
+                    logger.info(
+                        "nfc_gate: [%s] gate %d — uid=%s  "
+                        "auto-create via lameandboard client "
+                        "(uid_hex=None; patching %s next) metadata=%s",
+                        gate._name, gate._gate, uid_hex,
+                        gate._spoolman._rfid_key, _summarize_meta(meta))
+                new_spool_id = lb.auto_create_spool(meta, uid_hex=None)
+                if new_spool_id is not None:
+                    new_spool_id = int(new_spool_id)
+                    if gate._debug >= 3:
+                        logger.info(
+                            "nfc_gate: [%s] gate %d — uid=%s  "
+                            "auto-created Spoolman spool_id=%s; patching extra[%s]",
+                            gate._name, gate._gate, uid_hex, new_spool_id,
+                            gate._spoolman._rfid_key)
+                    if not gate._spoolman.set_spool_uid(new_spool_id, uid_hex):
+                        if tag is not None:
+                            tag.resolution = {
+                                'path': 'auto_create_uid_patch_failed',
+                                'spool_id': new_spool_id,
+                            }
+                        logger.warning(
+                            "nfc_gate: [%s] gate %d — uid=%s  "
+                            "auto-created Spoolman spool_id=%s but "
+                            "failed to patch extra[%s]; treating as "
+                            "unresolved so the next read does not lose "
+                            "the UID link",
+                            gate._name, gate._gate, uid_hex,
+                            new_spool_id, gate._spoolman._rfid_key)
+                        return None
+                    gate._spoolman.clear_cache()
+                    if tag is not None:
+                        tag.resolution = {'path': 'auto_create',
+                                          'spool_id': new_spool_id}
+                    if gate._debug >= 3:
+                        logger.info(
+                            "nfc_gate: [%s] gate %d — uid=%s  "
+                            "auto-created Spoolman spool_id=%s and patched extra[%s]",
+                            gate._name, gate._gate, uid_hex, new_spool_id,
+                            gate._spoolman._rfid_key)
+                    return new_spool_id
+                logger.warning(
+                    "nfc_gate: [%s] gate %d — uid=%s  auto-create returned no spool_id",
+                    gate._name, gate._gate, uid_hex)
+            except Exception as e:
+                logger.warning(
+                    "nfc_gate: [%s] gate %d — uid=%s  Spoolman auto-create failed: %s",
+                    gate._name, gate._gate, uid_hex, e)
+        elif material or color:
+            if tag is not None:
+                tag.resolution = {'path': 'metadata_direct'}
+            if gate._debug >= 3:
+                logger.info(
+                    "nfc_gate: [%s] gate %d — uid=%s  Spoolman unavailable; "
+                    "using tag metadata material=%s color=%s",
+                    gate._name, gate._gate, uid_hex, material, color)
+            return DIRECT_METADATA_SPOOL
+    elif gate._debug >= 3:
+        if not gate._spoolman_auto_create:
+            reason = 'spoolman_auto_create disabled'
+        elif not material:
+            reason = 'tag metadata has no material'
+        else:
+            reason = 'unknown'
+        logger.info(
+            "nfc_gate: [%s] gate %d — uid=%s  auto-create skipped: %s",
+            gate._name, gate._gate, uid_hex, reason)
+
+    if tag is not None:
+        tag.resolution = {'path': 'unresolved'}
+    if gate._debug >= 3:
+        logger.info("nfc_gate: [%s] gate %d — uid=%s  Spoolman→spool_id=None",
+                    gate._name, gate._gate, uid_hex)
+    return None

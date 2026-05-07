@@ -13,8 +13,8 @@ Load spool → HH parks filament → scan-jog rotates spool → tag in range →
 ## What You Need
 
 - A Voron with an EMU running [Happy Hare](https://github.com/moggieuk/Happy-Hare)
-- One EBB42 per filament lane (already required by Happy Hare on most EMU builds)
-- One PN532 NFC reader module per gate (~$3–5 each)
+- One mcu per filament lane (EBB36, EBB42, or SLB)
+- One PN532 NFC reader module per gate (~$3–5 each) 
 - M2 x 4 self-tapping screws to mount each PN532 to the bracket
 - Spoolman running and accessible from the Pi
 - NFC tags on your spools (NTAG213/215/216 or Mifare Classic)
@@ -44,7 +44,7 @@ NFC tags sit on the spool hub. When Happy Hare parks filament at the gate the hu
 **Automatic path (normal operation):**
 1. Happy Hare finishes loading filament and sets gate_status → 1 (parked)
 2. NFC_Manager detects the 0→1 edge on the next poll tick
-3. The scan-jog loop starts — filament advances in `scan_jog_mm` steps (default 50 mm), reading the NFC tag after each step
+3. The scan-jog loop starts — filament advances in `scan_jog_mm` steps (default 75 mm), reading the NFC tag after each step
 4. The moment the tag rotates into read range, the spool is identified through Spoolman and dispatched to Happy Hare
 5. The filament rewinds to the parked position via `MMU_UNLOAD restore=0`
 
@@ -59,7 +59,7 @@ This runs the exact same sequence with the same precondition checks (HH idle, no
 | Key | Default | Effect |
 |---|---|---|
 | `scan_enabled` | `True` | Master switch — set `False` to disable automatic scan-jog |
-| `scan_jog_mm` | `50.0` | Filament advance per step (mm) |
+| `scan_jog_mm` | `75.0` | Filament advance per step (mm) |
 | `scan_poll_interval` | `0.1` | Minimum seconds between NFC reads during scan |
 
 ---

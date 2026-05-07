@@ -74,9 +74,7 @@ Wire the PN532 directly to the Pi GPIO header:
 > SDA and SCL. If yours does not, add 4.7 kΩ resistors from SDA to 3.3V and
 > SCL to 3.3V.
 
-> **Address:** The PN532 default I2C address is `0x24`. If your module has
-> ADDR pads set, calculate the address:
-> A1=0, A0=0 → 0x24 / A1=0, A0=1 → 0x25 / A1=1, A0=0 → 0x26 / A1=1, A0=1 → 0x27
+> **Address:** The PN532 I2C address is fixed at `0x24` (decimal 36) by the chip — it cannot be changed. The pads/jumpers (SEL0/SEL1) select the communication protocol, not the address. For I2C: SEL0=1, SEL1=0.
 
 ---
 

@@ -273,6 +273,9 @@ class SpoolmanClient:
                 return spool
         return None
 
+    def lookup_spool_by_id(self, spool_id):
+        return self._fetch_spool_detail(spool_id)
+
     def _fetch_spool_detail(self, spool_id):
         """Return the full single-spool record, or None on request failure."""
         base_url = self._resolve_base_url()
@@ -315,95 +318,51 @@ class SpoolmanClient:
             resp.read()
         return True
 
-    def update_spool_location(self, spool_id, gate):
+    def set_spool_uid(self, spool_id, uid_hex):
         """
-        Write the physical MMU gate location to the Spoolman spool record.
+        Write this integration's configured UID extra field onto a spool.
 
-        This updates the spool's top-level "location" field to:
-            MMU_GATE_<gate>
-
-        The primary Spoolman API path is /api/v1/spool/<id>.  A plural
-        /api/v1/spools/<id> fallback is attempted for compatibility with
-        integrations or documentation that spell the path that way.
+        Spoolman stores extra-field values as JSON-encoded strings.  This method
+        intentionally writes self._rfid_key (default: rfid_tag), not the
+        vendored rfid_uid_N slot convention.
         """
-        if spool_id is None:
+        if spool_id is None or not uid_hex:
+            logger.warning(
+                "spoolman: cannot set uid extra field %s on spool_id=%s uid=%s",
+                self._rfid_key, spool_id, uid_hex)
             return False
-        location = "MMU_GATE_%s" % gate
-        payload = {"location": location}
+        payload = {"extra": {self._rfid_key: json.dumps(str(uid_hex))}}
         try:
             ok = self._patch_spool(spool_id, payload, plural=False)
         except HTTPError as e:
             if e.code not in (404, 405):
                 logger.warning(
-                    "spoolman: location update failed for spool_id=%s "
-                    "gate=%s (%s): %s", spool_id, gate, location, e)
+                    "spoolman: uid extra patch failed for spool_id=%s "
+                    "key=%s uid=%s: %s",
+                    spool_id, self._rfid_key, uid_hex, e)
                 return False
             try:
                 ok = self._patch_spool(spool_id, payload, plural=True)
             except Exception as fallback_error:
                 logger.warning(
-                    "spoolman: location update failed for spool_id=%s "
-                    "gate=%s (%s): %s", spool_id, gate, location,
-                    fallback_error)
+                    "spoolman: uid extra patch fallback failed for "
+                    "spool_id=%s key=%s uid=%s: %s",
+                    spool_id, self._rfid_key, uid_hex, fallback_error)
                 return False
         except Exception as e:
             logger.warning(
-                "spoolman: location update failed for spool_id=%s "
-                "gate=%s (%s): %s", spool_id, gate, location, e)
+                "spoolman: uid extra patch failed for spool_id=%s "
+                "key=%s uid=%s: %s",
+                spool_id, self._rfid_key, uid_hex, e)
             return False
 
         if ok:
-            for spool, _expiry in self._cache.values():
-                try:
-                    if int(spool.get('id')) == int(spool_id):
-                        spool['location'] = location
-                except Exception:
-                    continue
+            uid_norm = self._normalise_uid(str(uid_hex))
+            self._cache.pop(uid_norm, None)
             if self._debug >= 3:
-                logger.info("spoolman: spool_id=%s location=%s",
-                            spool_id, location)
-        return ok
-
-    def clear_spool_location(self, spool_id):
-        """
-        Clear the physical gate location on a Spoolman spool record.
-
-        Called when a spool is removed from a gate so Spoolman no longer shows
-        it as residing in that gate position.  Sets location to an empty string.
-        """
-        if spool_id is None:
-            return False
-        payload = {"location": ""}
-        try:
-            ok = self._patch_spool(spool_id, payload, plural=False)
-        except HTTPError as e:
-            if e.code not in (404, 405):
-                logger.warning(
-                    "spoolman: location clear failed for spool_id=%s: %s",
-                    spool_id, e)
-                return False
-            try:
-                ok = self._patch_spool(spool_id, payload, plural=True)
-            except Exception as fallback_error:
-                logger.warning(
-                    "spoolman: location clear failed for spool_id=%s: %s",
-                    spool_id, fallback_error)
-                return False
-        except Exception as e:
-            logger.warning(
-                "spoolman: location clear failed for spool_id=%s: %s",
-                spool_id, e)
-            return False
-
-        if ok:
-            for spool, _expiry in self._cache.values():
-                try:
-                    if int(spool.get('id')) == int(spool_id):
-                        spool['location'] = ""
-                except Exception:
-                    continue
-            if self._debug >= 3:
-                logger.info("spoolman: spool_id=%s location cleared", spool_id)
+                logger.info(
+                    "spoolman: spool_id=%s extra[%s]=%s",
+                    spool_id, self._rfid_key, uid_hex)
         return ok
 
     def lookup_spool_record_by_uid(self, uid_hex):

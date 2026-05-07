@@ -74,25 +74,14 @@ i2c_bus: i2c3_PB3_PB4
 
 ## I2C Address
 
-The PN532 defaults to address `0x24` (decimal `36`). Since each PN532 lives on its own dedicated I2C bus, all readers can stay at the default — no address conflict is possible.
-
-If your breakout board has address selection pads (usually labeled A0/A1, separate from the mode selection jumpers):
-
-| A1 | A0 | Address |
-|:---:|:---:|:---:|
-| 0 | 0 | `0x24` — default |
-| 0 | 1 | `0x25` |
-| 1 | 0 | `0x26` |
-| 1 | 1 | `0x27` |
+The PN532 I2C address is **fixed at `0x24` (decimal `36`)** by the chip — it cannot be changed. The two pads/jumpers on the breakout board (SEL0/SEL1, sometimes labeled A0/A1) select the **communication protocol**, not the address. For I2C you must have SEL0=1, SEL1=0 (see the mode table above).
 
 The address is set in `nfc_reader.cfg`:
 
 ```ini
 [nfc_gate]
-i2c_address: 36    ; decimal — 36 = 0x24
+i2c_address: 36    ; fixed — 36 = 0x24, do not change
 ```
-
-Only change this if you physically set the address pads.
 
 ---
 

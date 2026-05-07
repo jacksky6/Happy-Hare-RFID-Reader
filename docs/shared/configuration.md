@@ -41,11 +41,33 @@ spoolman_cache_ttl: 300
 
 ---
 
+### Tag Data Parsing
+
+```ini
+[nfc_gate]
+tag_parsing:          False
+bambu_reads:          False
+spoolman_auto_create: False
+#tag_max_pages:       16
+```
+
+| Setting | Default | Description |
+|---|---|---|
+| `tag_parsing` | `False` | `False` = UID-only (default — no tag content reads). `True` = read NTAG user pages or MIFARE authenticated blocks and parse filament metadata from the tag payload. |
+| `bambu_reads` | `False` | Allow authenticated MIFARE reads for Bambu factory spools when `tag_parsing: True`. Requires `pycryptodome` in the Klipper Python venv. Leave `False` unless pycryptodome is installed. |
+| `spoolman_auto_create` | `False` | When `tag_parsing: True` and no existing Spoolman spool matches the tag, automatically create a new vendor/filament/spool record from tag metadata. Only activates when the tag carries at least a material type. |
+| `tag_max_pages` | `16` | Fallback NTAG user-page window for non-NDEF/binary tags. NDEF text/JSON tags read the NDEF TLV length dynamically, so large OpenSpool/OpenPrintTag payloads do not need this increased. |
+
+> [!NOTE]
+> `bambu_reads: True` with `tag_parsing: False` logs a warning at startup and has no effect — the MIFARE path is never reached when tag parsing is disabled.
+
+---
+
 ### Polling
 
 ```ini
 [nfc_gate]
-startup_polling:    -1
+startup_polling:    1
 startup_poll_delay: 0.0
 poll_interval:      10
 absent_threshold:   3
@@ -75,13 +97,14 @@ poll_interval × absent_threshold = seconds before removal fires
 [nfc_gate]
 i2c_address: 36
 i2c_bus:     i2c3_PB3_PB4
+startup_poll_delay: 0.5
 ```
 
 These keys in the base `[nfc_gate]` section are inherited by every `[nfc_gate laneN]`. Set them once here; lane sections only need to specify them if a particular reader differs from the rest.
 
 | Setting | Default | Description |
 |---|---|---|
-| `i2c_address` | `36` (`0x24`) | PN532 I2C address as a decimal integer. Only change if you moved the PN532 address pads (A0/A1). All readers on separate buses can stay at the default. |
+| `i2c_address` | `36` (`0x24`) | PN532 I2C address as a decimal integer. The PN532 I2C address is fixed at `0x24` (36) by the chip — leave this at the default. |
 | `i2c_bus` | _(none)_ | Hardware I2C bus identifier on the lane MCU. Must be set in the base section or overridden per lane. |
 
 **Common bus names:**
@@ -91,14 +114,8 @@ These keys in the base `[nfc_gate]` section are inherited by every `[nfc_gate la
 | EBB42 v1.x (PB3/PB4) | `i2c3_PB3_PB4` |
 | SLB (PB10/PB11) | `i2c2_PB10_PB11` |
 
-**I2C address pad table** (change only if using multiple readers on one bus with a multiplexer):
-
-| Pad setting (A1/A0) | Decimal | Hex |
-|---|:---:|:---:|
-| 0/0 | `36` | `0x24` |
-| 0/1 | `37` | `0x25` |
-| 1/0 | `38` | `0x26` |
-| 1/1 | `39` | `0x27` |
+> [!NOTE]
+> The PN532 I2C address is hardwired to `0x24` (decimal `36`). The two pads/jumpers on the breakout board (SEL0/SEL1, sometimes labeled A0/A1) select the **communication protocol** (I2C, SPI, or HSU), not the address. For I2C: SEL0=1, SEL1=0. See the [wiring guide](../i2c-pn532/wiring.md) for the mode selection table.
 
 ---
 
@@ -204,13 +221,34 @@ These macros are called by NFC_Manager when gate state changes. Edit them to adj
 
 ### `_NFC_SPOOL_CHANGED`
 
-Called when a new tag UID resolves to a Spoolman spool. Parameters: `GATE`, `SPOOL_ID`, `UID`.
+Called when a tag resolves to a spool (either via Spoolman or from tag metadata directly).
+
+Two dispatch paths depending on tag type and Spoolman availability:
+
+**Spoolman path** — tag UID matched a Spoolman record:
+```
+GATE  SPOOL_ID  UID  [AUTO_CREATED=1]
+```
+
+**Metadata path** — tag carries embedded filament data, Spoolman disabled or no match:
+```
+GATE  UID  [MATERIAL=...]  [COLOR=...]  [TEMP=...]
+```
 
 Default:
 ```gcode
-MMU_GATE_MAP GATE={gate} SPOOLID={spool_id} AVAILABLE=1 SYNC=1 QUIET=1
+{% if params.SPOOL_ID is defined %}
+    {% if auto_created %}
+    MMU_SPOOLMAN REFRESH=1 QUIET=1
+    {% endif %}
+    MMU_GATE_MAP GATE={gate} SPOOLID={spool_id} AVAILABLE=1 SYNC=1 QUIET=1
+{% else %}
+    MMU_GATE_MAP GATE={gate} [MATERIAL=..] [COLOR=..] [TEMP=..] AVAILABLE=1 QUIET=1
+{% endif %}
 MMU_GATE_MAP GATE={gate} APPLY=1
 ```
+
+`AUTO_CREATED=1` is set when the spool record was just created by `spoolman_auto_create`. The macro runs `MMU_SPOOLMAN REFRESH=1 QUIET=1` first so Happy Hare's Spoolman cache includes the new spool before the gate assignment is sent.
 
 ### `_NFC_SPOOL_REMOVED`
 
