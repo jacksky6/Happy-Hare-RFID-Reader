@@ -1,6 +1,7 @@
 # Vendored Files
 
-Files copied verbatim from upstream repos. GPLv3 headers are preserved in each file.
+Files copied from upstream repos. GPLv3 headers are preserved in each file.
+Small local compatibility patches may be applied where noted below.
 
 ## lameandboard/rfid
 
@@ -18,11 +19,23 @@ synced_date:     2026-04-30
 
 ### Usage notes
 
-`rfid_tag_parser.py` is used as-is. Entry point: `parse_tag(raw_bytes_or_blocks, uid_hex)`.
+`rfid_tag_parser.py` is used as the rich tag parser. Entry point:
+`parse_tag(raw_bytes_or_blocks, uid_hex)`. The local copy also accepts an optional
+trace callback so NFC debug logging can follow parser decisions without adding a
+dependency on this project to the vendor module.
 
-`lameandboard_spoolman.py` is used for `find_or_create_vendor()`, `find_or_create_filament()`,
-and `create_spool()` only. `auto_create_spool()` is present in the file but **not called** —
-it encodes the `rfid_uid_N` multi-slot UID convention which this project does not use.
+`lameandboard_spoolman.py` is used by the Spoolman auto-create path. The NFC adapter
+instantiates the vendored `SpoolmanClient` with the resolved Spoolman URL and timeout,
+then calls `auto_create_spool(meta, uid_hex=None)`.
+
+Passing `uid_hex=None` is intentional: it lets the vendored helper create or find the
+vendor, filament, and spool from tag metadata without writing the upstream
+`rfid_uid_N` multi-slot UID fields. After the spool is created, this project patches
+the UID onto the newly-created spool using its configured single Spoolman extra field
+(`spoolman_rfid_key`, default `rfid_tag`) through the local NFC Spoolman adapter.
+
+If that UID patch fails, the read is treated as unresolved so the system does not lose
+the UID-to-spool link.
 
 ### Updating
 

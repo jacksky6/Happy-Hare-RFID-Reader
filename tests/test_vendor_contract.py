@@ -154,6 +154,6 @@ class TestSpoolmanClientContract:
         assert 'extra' in params
 
     def test_auto_create_spool_still_present(self):
-        # We do NOT call this — it uses rfid_uid_N convention.
-        # Its presence confirms the file structure is intact.
+        # Our adapter calls this with uid_hex=None, then patches its configured
+        # single UID field separately instead of using rfid_uid_N slots.
         assert callable(getattr(SpoolmanClient, 'auto_create_spool', None))
