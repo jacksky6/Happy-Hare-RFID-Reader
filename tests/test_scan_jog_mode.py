@@ -158,8 +158,17 @@ class MockPrintStats:
 
 
 class MockGCmd:
-    def __init__(self):
+    def __init__(self, params=None):
         self.responses = []
+        self.params = params or {}
+
+    def get_int(self, name, default=None, minval=None, maxval=None):
+        value = int(self.params.get(name, default))
+        if minval is not None and value < minval:
+            raise ValueError("below min")
+        if maxval is not None and value > maxval:
+            raise ValueError("above max")
+        return value
 
     def respond_info(self, msg):
         self.responses.append(msg)
@@ -870,6 +879,18 @@ def test_manual_jog_success_message_has_readable_spacing():
     assert g._scan_mode
     assert gcmd.responses[-1].startswith(
         '🔍 NFC[test]: scan-jog started for gate 3 (max=')
+
+def test_manual_jog_can_skip_hh_spoolman_sync():
+    g = _make_gate(gate=3)
+    g.printer.set_print_state('standby')
+    g.printer.set_mmu(MockMMU(gate_status=[0, 0, 0, 1], action='idle'))
+    gcmd = MockGCmd({'HH_SYNC': 0})
+
+    g._manual_jog_scan(gcmd)
+
+    assert g._scan_mode
+    assert not any('MMU_SPOOLMAN SYNC=1' in script
+                   for script in g.printer.gcode_scripts)
 
 def test_automatic_jog_blocked_by_unsafe_lane():
     g = _make_gate()

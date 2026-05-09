@@ -75,7 +75,7 @@ _poll_timer_event (every poll_interval)
 - A 2-second idle-settle delay (`_scan_idle_ready_time`) is inserted after HH reports idle. This prevents premature scan entry while HH is still completing its park move.
 - If another gate holds the scan lock, `_scan_pending` is re-armed and a 3-second retry is scheduled rather than silently dropping the trigger or spamming logs.
 
-**Manual trigger:** `NFC GATE=N JOG_SCAN=1` calls `scan_jog.manual_jog_scan(gate, gcmd)` directly. It runs the same precondition checks (not printing, HH idle, no other gate scanning, reader healthy) and calls `start(gate)`. No edge detection is involved.
+**Manual trigger:** `NFC GATE=N JOG_SCAN=1` calls `scan_jog.manual_jog_scan(gate, gcmd)` directly. It runs the same precondition checks (not printing, HH idle, no other gate scanning, reader healthy) and calls `start(gate)`. No edge detection is involved. `HH_SYNC=0` skips the pre-scan `MMU_SPOOLMAN SYNC=1` call for Happy Hare extension-hook callers that are already running inside Happy Hare.
 
 ---
 
