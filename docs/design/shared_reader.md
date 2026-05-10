@@ -17,7 +17,7 @@
 | ✅ | Shared reader does not require or accept a user-facing `mmu_gate`; code uses internal sentinel gate `255`. | `klippy/extras/nfc_gates/nfc_manager.py` | |
 | ✅ | Only one shared reader may be configured. | `klippy/extras/nfc_gates/nfc_manager.py` | |
 | ✅ | `scan_enabled` is forced off for the shared reader; shared must not enter scan-jog. | `klippy/extras/nfc_gates/nfc_manager.py` | |
-| ✅ | Shared reader does not register `NFC GATE=` mux commands; all user control goes through `NFC_SHARED`. | `klippy/extras/nfc_gates/nfc_manager.py` | |
+| ✅ | Shared reader does not register `NFC GATE=` mux commands; all user control goes through `NFC_SHARED`. `NFC_STATUS` is registered globally by `NFCGateDefaults` when a base `[nfc_gate]` section exists, or as a fallback by the first entry in `_lane_instances` — which in a shared-only install is the shared reader itself. | `klippy/extras/nfc_gates/nfc_manager.py`, `klippy/extras/nfc_gate.py` | |
 | ✅ | `NFC_SHARED` supports `READ`, `STATUS`, `CLEAR`, `PRELOAD_CHECK`, `POLL`, `SCAN`, `INIT`, and `CLEAR_CACHE`. | `klippy/extras/nfc_gates/nfc_manager.py`, `docs/shared/klipper-functions.md` | |
 | ✅ | Shared state tracks pending UID, pending spool ID, pending deadline, auto-created flag, last error, and read deadline. | `klippy/extras/nfc_gates/nfc_manager.py` | |
 | ✅ | Successful tag resolution stores a pending spool, starts `shared_pending_timeout`, stops polling, and keeps the pending spool after tag removal. | `klippy/extras/nfc_gates/nfc_manager.py` | |
@@ -34,7 +34,7 @@
 | ✅ | `CLEAR_CACHE=1` clears the `GateState` tag cache without clearing pending shared spool state. | `klippy/extras/nfc_gates/nfc_manager.py`, `docs/shared/klipper-functions.md` | |
 | ✅ | Successful tag read can trigger a named HH LED effect via `shared_tag_read_effect`; design example is blinking yellow `mmu_RFID_read`. | `klippy/extras/nfc_gates/nfc_manager.py`, `docs/shared/configuration.md` | |
 | ✅ | `NFC_SHARED STATUS=1` reports idle, polling, pending, expired, error, and reader-failed shared states. | `klippy/extras/nfc_gates/nfc_manager.py`, `docs/shared/klipper-functions.md` | |
-| ✅ | `NFC_STATUS` includes the shared reader after numbered lane readers. | `klippy/extras/nfc_gates/nfc_manager.py`, `docs/shared/klipper-functions.md` | |
+| ✅ | `NFC_STATUS` output includes the shared reader; in a shared-only install it appears alone (no lane rows), in a mixed install it appears after the lane rows. The shared instance is in `_lane_instances` but filtered from the lane loop by the `_shared` flag; `_append_shared_status` adds it separately. | `klippy/extras/nfc_gates/nfc_manager.py`, `klippy/extras/nfc_gate.py` | |
 | ✅ | Shared reader ready/init messages use `NFC_SHARED` commands and do not include lane HH seed notes. | `klippy/extras/nfc_gates/nfc_manager.py` | |
 | ✅ | Happy Hare pre-load hook bridge exists as `_NFC_SHARED_PRELOAD` and calls `NFC_SHARED PRELOAD_CHECK=1`. | `config/nfc_macros.cfg`, `install.sh`, `docs/shared/configuration.md` | |
 | ✅ | Happy Hare post-unload hook bridge exists as `_NFC_SHARED_POST_UNLOAD` and calls `NFC_SHARED READ=1`. | `config/nfc_macros.cfg`, `install.sh`, `docs/shared/configuration.md` | |
