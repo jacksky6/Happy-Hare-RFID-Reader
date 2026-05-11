@@ -205,8 +205,8 @@ def _make_gate(gate=0, scan_jog_mm=50.0, scan_max_mm=200.0,
                scan_poll_interval=0.5,
                scan_enabled=True,
                scan_rewind_buffer_mm=30.0,
-               scan_decode_retry_mm=5.0,
-               scan_decode_retry_rounds=3):
+               scan_decode_retry_mm=2.0,
+               scan_decode_retry_rounds=5):
     """Build a minimal NFCGate with scan-jog state, bypassing __init__.
 
     Uses object.__new__ to skip Klipper config/I2C setup, then manually

@@ -202,10 +202,10 @@ class NFCGateDefaults:
             'scan_rewind_buffer_mm', 30.0,
             minval=0.0, maxval=500.0)
         self.scan_decode_retry_mm = config.getfloat(
-            'scan_decode_retry_mm', 5.0,
+            'scan_decode_retry_mm', 2.0,
             minval=0.0, maxval=50.0)
         self.scan_decode_retry_rounds = config.getint(
-            'scan_decode_retry_rounds', 3,
+            'scan_decode_retry_rounds', 5,
             minval=0, maxval=10)
         self.scan_poll_interval = config.getfloat('scan_poll_interval', 0.1,
                                                    minval=0.1, maxval=5.0)
@@ -366,11 +366,11 @@ class NFCGate:
             minval=0.0, maxval=500.0)
         self._scan_decode_retry_mm = config.getfloat(
             'scan_decode_retry_mm',
-            d.scan_decode_retry_mm if d else 5.0,
+            d.scan_decode_retry_mm if d else 2.0,
             minval=0.0, maxval=50.0)
         self._scan_decode_retry_rounds = config.getint(
             'scan_decode_retry_rounds',
-            d.scan_decode_retry_rounds if d else 3,
+            d.scan_decode_retry_rounds if d else 5,
             minval=0, maxval=10)
         self._scan_max_mm   = None
         self._mmu_vars_path = None

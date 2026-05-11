@@ -317,9 +317,9 @@ def reset_uid_only_read(gate, uid):
 
 
 def decode_retry_config(gate):
-    max_rounds = max(0, int(getattr(gate, '_scan_decode_retry_rounds', 3)))
+    max_rounds = max(0, int(getattr(gate, '_scan_decode_retry_rounds', 5)))
     max_attempts = max_rounds * 2
-    retry_mm = max(0.0, float(getattr(gate, '_scan_decode_retry_mm', 5.0)))
+    retry_mm = max(0.0, float(getattr(gate, '_scan_decode_retry_mm', 2.0)))
     return max_attempts, retry_mm
 
 
