@@ -120,7 +120,8 @@ def _single_line_preview(text, limit=300):
 _META_SUMMARY_KEYS = (
     'tag_format', 'brand', 'vendor', 'material', 'material_detail',
     'material_id', 'material_variant_id', 'sku', 'color_hex',
-    'diameter_mm', 'weight_g', 'spool_weight_g', 'tray_uid',
+    'diameter_mm', 'weight_g', 'spool_weight_g', 'min_temp', 'max_temp',
+    'bed_temp', 'drying_temp', 'drying_time_h', 'tray_uid',
     'spoolman_id', 'parse_warning', 'parse_error', 'error',
 )
 
