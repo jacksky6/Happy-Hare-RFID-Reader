@@ -603,7 +603,7 @@ def test_load_transition_waits_for_idle_settle_before_scan():
     assert g._scan_mode
     assert NFCGate._active_scan_gate == 0
     assert g.printer._gcode.responses[-1].startswith(
-        '🔍 NFC[0]: starting scan-jog (max=')
+        '[SCAN] NFC[0]: starting scan-jog (max=')
     assert result == g.reactor.NEVER
 
 def test_no_trigger_while_printing():
@@ -647,7 +647,7 @@ def test_scan_lock_defers_pending_trigger_for_three_seconds():
 
     assert g._scan_mode
     assert g.printer._gcode.responses[-1].startswith(
-        '🔍 NFC[2]: starting scan-jog (max=')
+        '[SCAN] NFC[2]: starting scan-jog (max=')
     assert result == g.reactor.NEVER
 
 def test_scan_disabled_skips_all_detection():
@@ -1168,7 +1168,7 @@ def test_manual_jog_success_message_has_readable_spacing():
 
     assert g._scan_mode
     assert gcmd.responses[-1].startswith(
-        '🔍 NFC[test]: scan-jog started for gate 3 (max=')
+        '[SCAN] NFC[test]: scan-jog started for gate 3 (max=')
 
 def test_manual_jog_schedules_required_hh_prep():
     g = _make_gate(gate=3)

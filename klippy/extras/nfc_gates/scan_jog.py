@@ -25,27 +25,27 @@ def manual_jog_scan(gate, gcmd):
         return
     hh = gate._read_hh_status()
     if hh.present and not hh.idle:
-        msg = ("⛔ NFC[%s]: Happy Hare is busy (action=%s) — "
+        msg = ("[WARN] NFC[%s]: Happy Hare is busy (action=%s) — "
                "wait for idle before starting scan-jog"
                % (gate._name, hh.action))
         logger.warning(msg)
         gcmd.respond_info(msg)
         return
     if gate.__class__._active_scan_gate is not None:
-        msg = ("⛔ NFC[%s]: gate %d is already scanning — "
+        msg = ("[WARN] NFC[%s]: gate %d is already scanning — "
                "only one gate may scan at a time"
                % (gate._name, gate.__class__._active_scan_gate))
         logger.warning(msg)
         gcmd.respond_info(msg)
         return
     if gate._scan_mode:
-        msg = "⛔ NFC[%s]: scan-jog already in progress for this gate" % gate._name
+        msg = "[WARN] NFC[%s]: scan-jog already in progress for this gate" % gate._name
         logger.warning(msg)
         gcmd.respond_info(msg)
         return
     ok, reason, max_mm = gate._prepare_scan_jog()
     if not ok:
-        msg = "⛔ NFC[%s]: scan-jog not available while %s" % (
+        msg = "[WARN] NFC[%s]: scan-jog not available while %s" % (
             gate._name, reason)
         logger.warning(msg)
         gcmd.respond_info(msg)
@@ -54,7 +54,7 @@ def manual_jog_scan(gate, gcmd):
     gate.reactor.update_timer(gate._poll_timer, gate.reactor.NEVER)
     start(gate, max_mm=max_mm)
     gcmd.respond_info(
-        "🔍 NFC[%s]: scan-jog started for gate %d"
+        "[SCAN] NFC[%s]: scan-jog started for gate %d"
         " (max=%.0fmm  poll=%.2fs)"
         % (gate._name, gate._gate,
            gate._scan_max_mm, gate._scan_poll_interval))
@@ -589,11 +589,11 @@ def finish(gate):
             gate._hh_load_paused = True
             gate._state.miss_count = 0
         if event_type == 'changed' and spool is not None:
-            msg = "✅ NFC[%d]: spool %s assigned" % (g, spool)
+            msg = "[OK] NFC[%d]: spool %s assigned" % (g, spool)
             info_both(msg)
             gate._console(msg)
         elif event_type == 'changed' and meta is not None:
-            msg = "✅ NFC[%d]: tag metadata assigned" % g
+            msg = "[OK] NFC[%d]: tag metadata assigned" % g
             info_both(msg)
             gate._console(msg)
         elif event_type == 'uid_only':

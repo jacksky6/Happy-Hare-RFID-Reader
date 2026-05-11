@@ -733,7 +733,7 @@ class _RaisingNtagReader(_ReaderForCurrentTag):
 
 
 def test_ntag_read_exception_returns_uid_with_parse_error():
-    """I2C error during NTAG read records parse_error but still returns the UID."""
+    """I2C error during NTAG read sets parse_error, read_incomplete, and read_retry_reason."""
     reader = _RaisingNtagReader(target_info=_target(sak=0x00))
     gate = _read_gate(reader, tag_parsing=True)
     assert gate._read_current_tag() == '04AABB'
@@ -742,16 +742,20 @@ def test_ntag_read_exception_returns_uid_with_parse_error():
     assert tag.parse_error.startswith('ntag read failed:')
     assert tag.meta == {'uid': '04AABB'}
     assert tag.raw_tag_data is None
+    assert tag.read_incomplete is True
+    assert tag.read_retry_reason == tag.parse_error
 
 
 def test_ntag_read_empty_bytes_returns_uid_with_parse_error():
-    """NTAG read returning an empty bytearray records 'empty ntag read'."""
+    """Empty NTAG read sets parse_error, read_incomplete, and read_retry_reason."""
     reader = _ReaderForCurrentTag(target_info=_target(sak=0x00), raw=bytearray())
     gate = _read_gate(reader, tag_parsing=True)
     assert gate._read_current_tag() == '04AABB'
     tag = gate._state.current_tag
     assert tag.parse_error == 'empty ntag read'
     assert tag.meta == {'uid': '04AABB'}
+    assert tag.read_incomplete is True
+    assert tag.read_retry_reason == 'empty ntag read'
 
 
 class _NoneNtagReader(_ReaderForCurrentTag):
@@ -761,13 +765,15 @@ class _NoneNtagReader(_ReaderForCurrentTag):
 
 
 def test_ntag_read_none_returns_uid_with_parse_error():
-    """NTAG read returning None is treated the same as empty bytes."""
+    """NTAG read returning None sets parse_error, read_incomplete, and read_retry_reason."""
     reader = _NoneNtagReader(target_info=_target(sak=0x00))
     gate = _read_gate(reader, tag_parsing=True)
     assert gate._read_current_tag() == '04AABB'
     tag = gate._state.current_tag
     assert tag.parse_error == 'empty ntag read'
     assert tag.meta == {'uid': '04AABB'}
+    assert tag.read_incomplete is True
+    assert tag.read_retry_reason == 'empty ntag read'
 
 
 # ── _parse_current_tag: parse_tag failure cases ───────────────────────────────

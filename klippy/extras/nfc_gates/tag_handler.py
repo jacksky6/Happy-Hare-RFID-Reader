@@ -374,12 +374,16 @@ def capture_ntag_metadata(gate, tag):
     except Exception as e:
         tag.parse_error = 'ntag read failed: {}'.format(e)
         tag.meta = {'uid': uid_hex}
+        tag.read_incomplete = True
+        tag.read_retry_reason = tag.parse_error
         logger.warning("nfc_gate: [%s] gate %d — uid=%s  NTAG read failed: %s",
                        gate._name, gate._gate, uid_hex, e)
         return
     if not raw:
         tag.parse_error = 'empty ntag read'
         tag.meta = {'uid': uid_hex}
+        tag.read_incomplete = True
+        tag.read_retry_reason = tag.parse_error
         logger.warning("nfc_gate: [%s] gate %d — uid=%s  NTAG read returned no data",
                        gate._name, gate._gate, uid_hex)
         return
@@ -403,6 +407,11 @@ def resolve_auth_keys(gate, tag):
         return None, 'pycryptodome not installed: %s' % e
     except Exception as e:
         return None, 'key derivation failed: %s' % e
+
+
+def resolve_default_mifare_keys():
+     """Return standard MIFARE Classic factory Key-A for all 16 sectors."""
+     return [b'\xff\xff\xff\xff\xff\xff'] * 16
 
 
 def capture_mifare_metadata(gate, tag, sector_keys):
@@ -515,6 +524,16 @@ def read_current_tag(gate):
                     "Bambu keys derived; reading sectors 0-4",
                     gate._name, gate._gate, uid_hex)
             capture_mifare_metadata(gate, tag, keys)
+            # --- Creality/QIDI default-key fallback (commented out, needs hardware test) ---
+            # if len(getattr(tag, 'mifare_auth_failed_sectors', [])) == 5:
+            #     tag.read_incomplete = False
+            #     tag.read_retry_reason = None
+            #     tag.raw_tag_data = None
+            #     tag.parse_error = None
+            #     new_target = gate._reader.read_target()
+            #     if new_target is not None and new_target.get('uid') == uid_hex:
+            #         capture_mifare_metadata(gate, tag, resolve_default_mifare_keys())
+            # ---------------------------------------------------------------------------------
     else:
         tag.parse_error = 'unsupported target; uid-only fallback'
         release_reader_target(gate, "unsupported_uid_only_fallback")

@@ -711,7 +711,7 @@ class NFCGate:
 
             self._commands_registered = True
 
-        self._gcode.respond_info(f"📡 NFC Gate [{self._name}] connected")
+        self._gcode.respond_info(f"[CONNECTED] NFC Gate [{self._name}] connected")
 
         # Schedule PN532 init after the rest of Klippy/I2C has settled
         self.reactor.register_timer(
@@ -757,7 +757,7 @@ class NFCGate:
         if self._gcode is not None:
             if self._failed:
                 self._gcode.respond_info(
-                    "❌ NFC[%s]: reader not ready — check wiring. "
+                    "[WARN] NFC[%s]: reader not ready — check wiring. "
                     "Run NFC GATE=%d INIT=1 after fixing."
                     % (self._name, self._gate))
             else:
@@ -765,7 +765,7 @@ class NFCGate:
                              if self._hh_seed_spool_id is not None
                              else "  HH reports gate empty")
                 self._gcode.respond_info(
-                    "✅ NFC[%s]: reader ready.%s  %s"
+                    "[OK] NFC[%s]: reader ready.%s  %s"
                     % (self._name,
                        seed_note,
                        "Startup polling is enabled; first poll in %.1fs."
@@ -905,9 +905,9 @@ class NFCGate:
                         msg = "NFC[%d]: scan-jog not available while %s" % (
                             self._gate, reason)
                         logger.warning("nfc_gate: [%s] %s", self._name, msg)
-                        self._console("⚠️ " + msg)
+                        self._console("[WARN] " + msg)
                         return self.reactor.monotonic() + self._poll_interval
-                    msg = ("🔍 NFC[%d]: starting scan-jog "
+                    msg = ("[SCAN] NFC[%d]: starting scan-jog "
                            "(max=%.0fmm  poll=%.2fs)"
                            % (self._gate, max_mm, self._scan_poll_interval))
                     if self._debug >= 3:
