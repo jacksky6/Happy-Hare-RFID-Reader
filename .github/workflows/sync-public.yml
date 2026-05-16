@@ -34,8 +34,7 @@ jobs:
         run: |
           git config user.name "github-actions"
           git config user.email "github-actions@github.com"
-          git remote add public https://x-access-token:${{ secrets.PUBLIC_REPO_TOKEN }}@github.com/cwiegert/HH-RFID-Rea
-        der.git
+          git remote add public https://x-access-token:${{ secrets.PUBLIC_REPO_TOKEN }}@github.com/cwiegert/HH-RFID-Reader.git
           git add -A
           git commit -m "Sync from private repo" --allow-empty
           git push public main --force
