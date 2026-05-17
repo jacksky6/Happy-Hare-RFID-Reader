@@ -42,8 +42,8 @@ These apply to both per-lane readers and the shared reader.
 | Manual polling start | `NFC[<name>]: polling started` | Per-lane: console command output only. Shared: see shared table. |
 | Manual polling stop | `NFC[<name>]: polling stop requested` | Per-lane: console command output only. Shared: see shared table. |
 | One manual poll complete | `NFC[<name>]: one poll complete; <status>` | Per-lane: console command output only. Shared: see shared table. |
-| Status command | Per-lane `NFC GATE=<#> STATUS`, global `NFC_STATUS`, shared `NFC_SHARED STATUS`, and `SUMMARY=1` print status text. | Console command output only |
-| Help command | `NFC_HELP`, `NFC GATE=<#> HELP`, `NFC_SHARED HELP`, or low-level debug help prints command help. | Console command output only |
+| Status command | Per-lane `NFC GATE=<#> STATUS`, global `NFC_STATUS`, shared `NFC_SHARED STATUS=1`, and `SUMMARY=1` print status text. | Console command output only |
+| Help command | `NFC_HELP`, `NFC GATE=<#> HELP`, `NFC_SHARED HELP=1`, or low-level debug help prints command help. | Console command output only |
 
 ## Per-Lane Reader Messages
 
@@ -106,7 +106,7 @@ Shared reader messages are specific to `[nfc_gate shared]` and `NFC_SHARED`.
 | Startup polling resumed after manual init | `NFC[shared]: startup polling resumed` | `INFO     nfc_gate: [shared] startup polling enabled; first poll in <delay>s` |
 | `READ=1` while reader failed | `💥 NFC[shared]: reader failed; run INIT=1 first` | `ERROR    nfc_gate: [shared] shared READ=1 refused — reader failed; run INIT=1 first` |
 | `READ=1` while printing | `⚠️ NFC[shared]: shared polling not started while printing` | `WARNING  nfc_gate: [shared] shared READ=1 refused — printing` |
-| `READ=1` while spool pending | `⚠️ NFC[shared]: spool <spool> is already pending; use NFC_SHARED REPLACE to discard it and scan another, or NFC_SHARED CANCEL to cancel` | `WARNING  nfc_gate: [shared] shared READ=1 refused — spool <spool> already pending` |
+| `READ=1` while spool pending | `⚠️ NFC[shared]: spool <spool> is already pending; use NFC_SHARED REPLACE=1 to discard it and scan another, or NFC_SHARED CANCEL=1 to cancel` | `WARNING  nfc_gate: [shared] shared READ=1 refused — spool <spool> already pending` |
 | `READ=1` starts polling | `NFC[shared]: polling started` | `INFO     nfc_gate: [shared] shared READ=1 — polling started with <seconds>s read timeout` |
 | `READ=0` stops polling | `NFC[shared]: polling stop requested` | `INFO     nfc_gate: [shared] shared READ=0 — polling stopped; pending spool=<spool> kept` |
 | Manual scan while printing | `⚠️ NFC[shared]: shared scan skipped while printing` | `WARNING  nfc_gate: [shared] shared scan skipped while printing` |
@@ -115,7 +115,7 @@ Shared reader messages are specific to `[nfc_gate shared]` and `NFC_SHARED`.
 | Successful auto-created tag read | `[OK] NFC[shared]: spool <spool> detected (UID <uid>) [new spool] — load spool into gate now` | `INFO     nfc_gate: [shared] shared tag resolved — spool=<spool> uid=<uid> auto_created=True pending for <seconds>s` |
 | Level-3 tag detail | No extra console message. | `INFO     nfc_gate: [shared] shared CHANGED — spool=<spool> uid=<uid> auto_created=<bool>; polling stopped, awaiting PRELOAD_CHECK` at `debug: 3` |
 | Duplicate pending tag | `⚠️ NFC[shared]: spool <spool> is already pending; duplicate tag read ignored` | `INFO     nfc_gate: [shared] shared duplicate tag ignored — spool=<spool> uid=<uid>` |
-| Different tag while pending | `⚠️ NFC[shared]: spool <pending> is already pending; read spool <new> uid=<uid> ignored. Run NFC_SHARED REPLACE to discard the pending spool and scan another` | `WARNING  nfc_gate: [shared] shared tag ignored — pending spool=<pending>, new spool=<new> uid=<uid>; use NFC_SHARED REPLACE to replace` |
+| Different tag while pending | `⚠️ NFC[shared]: spool <pending> is already pending; read spool <new> uid=<uid> ignored. Run NFC_SHARED REPLACE=1 to discard the pending spool and scan another` | `WARNING  nfc_gate: [shared] shared tag ignored — pending spool=<pending>, new spool=<new> uid=<uid>; use NFC_SHARED REPLACE=1 to replace` |
 | Rich tag has no spool ID after limit | `⚠️ NFC[shared]: rich tag uid=<uid> has no Spoolman spool ID after <n> attempts — enable spoolman_auto_create or use MMU_PRELOAD to load without spool assignment` | `INFO     nfc_gate: [shared] shared rich tag uid=<uid> — no Spoolman spool ID; enable spoolman_auto_create or register the spool manually (<count>/<limit>)` |
 | UID not found after limit | `⚠️ NFC[shared]: tag uid=<uid> not found in Spoolman after <n> attempts — use MMU_PRELOAD to load without spool assignment` | `INFO     nfc_gate: [shared] shared UID-only — tag uid=<uid> not in Spoolman (missed=<count>/<limit>)` |
 | Pending timeout | `⚠️ NFC[shared]: pending spool timed out after <seconds>s; tap tag again` | `INFO     nfc_gate: [shared] shared pending spool=<spool> timed out after <seconds>s` |

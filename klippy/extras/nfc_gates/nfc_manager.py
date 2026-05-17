@@ -238,14 +238,14 @@ def _nfc_help(gcmd=None):
         lines.extend([
             "",
             "Shared reader commands:",
-            "NFC_SHARED HELP : Show shared reader commands",
-            "NFC_SHARED STATUS : Show detailed shared reader state",
-            "NFC_SHARED SUMMARY : Show one-line shared reader state",
+            "NFC_SHARED HELP=1 : Show shared reader commands",
+            "NFC_SHARED STATUS=1 : Show detailed shared reader state",
+            "NFC_SHARED SUMMARY=1 : Show one-line shared reader state",
             "NFC_SHARED READ=1 : Start shared polling",
             "NFC_SHARED READ=0 : Stop shared polling",
-            "NFC_SHARED CANCEL : Cancel a staged shared spool",
-            "NFC_SHARED REPLACE : Discard a staged spool and scan another",
-            "NFC_SHARED LED_TEST : Test configured shared tag-read LED effect",
+            "NFC_SHARED CANCEL=1 : Cancel a staged shared spool",
+            "NFC_SHARED REPLACE=1 : Discard a staged spool and scan another",
+            "NFC_SHARED LED_TEST=1 : Test configured shared tag-read LED effect",
         ])
         if advanced:
             lines.extend([
@@ -818,8 +818,8 @@ class NFCGate:
                         self._name, self._shared_pending_spool)
                     gcmd.respond_info(
                         "[WARN] NFC[%s]: spool %s is already pending; use "
-                        "NFC_SHARED REPLACE to discard it and scan another, "
-                        "or NFC_SHARED CANCEL to cancel"
+                        "NFC_SHARED REPLACE=1 to discard it and scan another, "
+                        "or NFC_SHARED CANCEL=1 to cancel"
                         % (self._name, self._shared_pending_spool))
                     return
                 self._shared_missed_resolutions = 0
@@ -1876,12 +1876,12 @@ class NFCGate:
                 else:
                     msg = (
                         "[WARN] NFC[%s]: spool %d is already pending; read spool %d "
-                        "uid=%s ignored. Run NFC_SHARED REPLACE to discard "
+                        "uid=%s ignored. Run NFC_SHARED REPLACE=1 to discard "
                         "the pending spool and scan another"
                         % (self._name, pending_spool, spool, uid))
                     logger.warning(
                         "nfc_gate: [%s] shared tag ignored — pending spool=%d, "
-                        "new spool=%d uid=%s; use NFC_SHARED REPLACE to replace",
+                        "new spool=%d uid=%s; use NFC_SHARED REPLACE=1 to replace",
                         self._name, pending_spool, spool, uid)
                     self._shared_last_action = (
                         "ignored spool %d while spool %d pending"
@@ -2090,7 +2090,7 @@ class NFCGate:
         if self._is_printing():
             return "wait for printing to finish; shared reads are blocked"
         if self._shared_pending_spool is not None:
-            return "insert filament before timeout, or run NFC_SHARED REPLACE"
+            return "insert filament before timeout, or run NFC_SHARED REPLACE=1"
         if self._shared_last_error:
             last_action = self._shared_last_action or ''
             if "expired" in self._shared_last_error:
@@ -2274,14 +2274,15 @@ class NFCGate:
     def _shared_help(self, gcmd):
         gcmd.respond_info(
             "NFC_SHARED commands:\n"
+            "  Add =1 to action flags; Klipper rejects bare forms like NFC_SHARED CANCEL.\n"
             "  NFC_SHARED READ=1          - start polling (rejected while printing)\n"
             "  NFC_SHARED READ=0          - stop polling (keeps pending spool)\n"
-            "  NFC_SHARED STATUS          - show detailed shared reader state\n"
-            "  NFC_SHARED SUMMARY         - show one-line shared reader state\n"
-            "  NFC_SHARED HELP            - show this help\n"
-            "  NFC_SHARED CANCEL          - cancel pending spool and stop polling\n"
-            "  NFC_SHARED REPLACE         - discard pending spool and scan another\n"
-            "  NFC_SHARED LED_TEST        - test configured shared tag-read LED effect\n"
+            "  NFC_SHARED STATUS=1        - show detailed shared reader state\n"
+            "  NFC_SHARED SUMMARY=1       - show one-line shared reader state\n"
+            "  NFC_SHARED HELP=1          - show this help\n"
+            "  NFC_SHARED CANCEL=1        - cancel pending spool and stop polling\n"
+            "  NFC_SHARED REPLACE=1       - discard pending spool and scan another\n"
+            "  NFC_SHARED LED_TEST=1      - test configured shared tag-read LED effect\n"
             "\n"
             "Advanced shared-reader commands:\n"
             "  NFC_SHARED CLEAR=1         - clear pending state and stop polling\n"
