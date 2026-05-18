@@ -125,11 +125,9 @@ class SharedPreloadCoordinator:
             "nfc_gate: [%s] PRELOAD_CHECK complete — pending cleared, "
             "polling restarted",
             gate._name)
-        if gate._debug >= 3:
-            logger.info(
-                "nfc_gate: [%s] shared reader ready for next spool — "
-                "tap tag on reader to stage",
-                gate._name)
+        gcmd.respond_info(
+            "[OK] NFC[%s]: spool %d loaded — ready for next tag"
+            % (gate._name, spool_id))
 
     def clear_assigned(self, gcmd):
         gate = self._gate
@@ -185,3 +183,6 @@ class SharedPreloadCoordinator:
         gate._shared_read_deadline = 0.0
         gate._polling = True
         gate.reactor.update_timer(gate._poll_timer, gate.reactor.NOW)
+        gcmd.respond_info(
+            "[OK] NFC[%s]: spool %d loaded — ready for next tag"
+            % (gate._name, spool_id))
