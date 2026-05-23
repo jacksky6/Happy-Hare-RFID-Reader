@@ -191,10 +191,10 @@ prompt_choice() {
     local reply
 
     for choice in "$@"; do
-        choice_label="${choice}"
-        if [ "${choice}" = "${default_value}" ] ||
-           [ "${choice}" = "direct" ] || [ "${choice}" = "rich" ]; then
-            choice_label="$(choice_style "${choice}")"
+        if [ "${choice}" = "${default_value}" ]; then
+            choice_label="${DEFAULT}${BOLD}${choice}${RESET}"
+        else
+            choice_label="${choice}"
         fi
         if [ -z "${choices_label}" ]; then
             choices_label="${choice_label}"
@@ -835,6 +835,12 @@ print_banner
 echo "Interactive setup"
 echo ""
 
+if [ -f "${NFC_READER_CFG}" ]; then
+    echo "${DEFAULT}${BOLD}  Existing install detected — updating.${RESET}"
+    echo "  Your current configuration will be preserved; only changed values will be written."
+    echo ""
+fi
+
 # ── Q1: Reader type ───────────────────────────────────────────────────────────
 DEFAULT_READER_TYPE="$(detect_reader_type "${NFC_READER_SHARED_CFG}")"
 echo "1. Reader type"
@@ -978,11 +984,22 @@ echo "  Startup polling:   ${STARTUP_POLLING}"
 if [ "${READER_TYPE}" = "shared" ]; then
     echo "  i2c_mcu:           ${I2C_MCU}"
     echo "  i2c_bus:           ${I2C_BUS}"
-    echo "  LED effects:       ${DEFAULT}${MMU_LED_UNIT}_mmu_RFID_read_exit / ${MMU_LED_UNIT}_mmu_RFID_ready_exit / ...${RESET}"
-    echo "                     (whole-chain — all gate exit LEDs flash simultaneously)"
+    echo "  LED effects:       (whole-chain — all gate exit LEDs flash simultaneously)"
+    echo "    tag detected:    ${DEFAULT}${MMU_LED_UNIT}_mmu_RFID_read_exit${RESET}"
+    echo "    spool ready:     ${DEFAULT}${MMU_LED_UNIT}_mmu_RFID_ready_exit${RESET}"
+    echo "    unresolved:      ${DEFAULT}${MMU_LED_UNIT}_mmu_RFID_unresolved_exit${RESET}"
+    echo "    auto-create:     ${DEFAULT}${MMU_LED_UNIT}_mmu_RFID_creating_exit${RESET}"
+    echo "    bypass read:     ${DEFAULT}${MMU_LED_UNIT}_mmu_RFID_bypass_read_exit${RESET}"
+    echo "    bypass ready:    ${DEFAULT}${MMU_LED_UNIT}_mmu_RFID_bypass_ready_exit${RESET}"
 else
     echo "  Lane count:        ${LANE_COUNT}"
     echo "  Scan-jog:          ${SCAN_ENABLED}"
+    echo "  LED effects:       (per active gate — _exit_N suffix applied automatically)"
+    echo "    searching:       ${DEFAULT}mmu_clockwise_slow${RESET}"
+    echo "    tag read:        ${DEFAULT}mmu_RFID_read${RESET}"
+    echo "    rewinding:       ${DEFAULT}mmu_anticlock_fast${RESET}"
+    echo "    auto-create:     ${DEFAULT}mmu_RFID_creating${RESET}"
+    echo "    unresolved:      ${DEFAULT}mmu_RFID_unresolved${RESET}"
 fi
 echo "  Tag mode:          ${TAG_MODE}"
 if [ "${TAG_MODE}" = "rich" ]; then
@@ -1002,16 +1019,13 @@ else
 fi
 echo "${DEFAULT}${BOLD}════════════════════════════════════════════════════════════════${RESET}"
 echo ""
-# Debug confirmation prompt kept here for installer development. Normal installs
-# continue after the summary without requiring another prompt.
-# read -r -p "  Proceed with install? [y/N]: " _confirm
-# case "${_confirm}" in
-#     [yY]|[yY][eE][sS]) ;;
-#     *)
-#         echo "  Install cancelled — no files were written."
-#         exit 0
-#         ;;
-# esac
+prompt_yes_no _CONFIRM_INSTALL \
+    "  Start the install with these settings?" \
+    "yes"
+if [ "${_CONFIRM_INSTALL}" != "yes" ]; then
+    echo "  Install cancelled — no files were written."
+    exit 0
+fi
 echo ""
 
 # ── Symlink Python extras into Klipper ───────────────────────────────────────

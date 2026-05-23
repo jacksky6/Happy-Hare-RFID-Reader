@@ -5,26 +5,50 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ---
 
-## [0.9.20] - 05/21/2026 - WoodWorker
+## [0.9.21] - 05/23/2026 - WoodWorker
 
-### Logging — Console Messages Now Mirrored to nfc_reader.log
+### Scan-Jog LED Reliability
 
-- `[CONNECTED]` startup message now logged at `INFO` alongside the Klipper console output.
-- Startup `[WARN] not ready — check wiring` now logged at `WARNING` (previously only the deeper init `ERROR` was logged; the console summary was silent in the log).
-- Startup `[OK] ready` message (including HH seed and poll-delay detail) now logged at `INFO` at `debug: 3`.
-- Per-lane `READ=1` / `READ=0` now logged at `INFO` (`gate N READ=1 — polling started` / `gate N READ=0 — polling stopped`). Shared-reader equivalents were already logged; per-lane was the gap.
+- Added a delayed scan LED reassert timer so the per-gate clockwise search effect is reapplied after Happy Hare's own LED refreshes from `MMU_GATE_MAP`, `MMU_SELECT`, and `MMU_TEST_MOVE`.
+- Reasserted the searching effect after scan prep, each scan step, each jog move, and decode-retry moves so the NFC scan state keeps visible control of the active gate while scan-jog is running.
+- Cancelled pending LED reassert timers when scan-jog exits, rewinds, disconnects, or intentionally hands LED control back to Happy Hare.
+- Added a short visible tag-read hold before rewind so `mmu_RFID_read_exit_N` can play before the rewind effect starts.
+- Kept rewind LED feedback active through the rewind move and released back to Happy Hare only after parking/polling cleanup completes.
+- Added regression coverage for the delayed search-effect reassert and updated scan-jog timing expectations around the tag-read hold.
 
-### Documentation — Console Prefix Colors
+### Config Defaults
 
-- Added color reference table to `message_definition.md` with the hex color for each bracketed prefix as rendered in Fluidd/Mainsail: `[WARN]` yellow `#FFFF00`, `[OK]`/`[REWIND]` light green `#90EE90`, `[ERROR]` red `#FF6060`, `[SCAN]`/`[MOVE]` orange `#FFA040`, `NFC` prefix light blue `#4FC3F7`.
-- Added log-level mapping table showing which `debug:` setting gates each prefix (`[ERROR]` → level 1, `[WARN]` → level 2, `[OK]`/info → level 3).
-- Updated `[CONNECTED]`, per-lane polling start/stop, and startup ready rows in the message table to reflect their new `nfc_reader.log` entries.
+- Fixed default inheritance for the per-lane LED effect names so base `[nfc_gate]` values are available to lane instances unless explicitly overridden.
 
-### Install — Public Repo URL
+---
 
-- `install.sh` Moonraker `origin:` is now hardcoded to `https://github.com/cwiegert/HH-RFID-Reader.git` instead of being read dynamically from the local git remote (which silently used whatever private remote the dev machine had configured).
-- `install-uninstall.md` Step 2 clone simplified from a manual sparse-checkout sequence to a plain `git clone https://github.com/cwiegert/HH-RFID-Reader.git emu-nfc-reader` matching the Readme quick-install. The installer handles the sparse checkout automatically.
-- `install-uninstall.md` Moonraker section now notes that the installer adds the block automatically; manual instructions remain for cases where `moonraker.conf` was not found.
+## [0.9.20] - 05/23/2026 - WoodWorker
+
+### Per-Gate LED Feedback — Scan-Jog and Spool Resolution
+
+Added per-gate LED effects for per-lane readers across three events. All effects target only the active gate using HH's `_exit_N` naming convention (`_MMU_SET_LED_EFFECT EFFECT={name}_exit_{gate} REPLACE=1`).
+
+**Scan-jog state machine** (`scan_jog.py`):
+
+| Phase | Effect fired |
+|---|---|
+| Searching (first scan step, deferred from `start()`) | `mmu_clockwise_slow_exit_N` |
+| Tag read confirmed | `mmu_RFID_read_exit_N` |
+| Rewind started (tag found or no-tag abort) | `mmu_anticlock_fast_exit_N` |
+| Park complete / polling resumed | `MMU_GATE_MAP QUIET=1` → returns LED control to Happy Hare |
+
+**Spool resolution** (`tag_handler.py`):
+
+| Event | Effect fired |
+|---|---|
+| Spoolman auto-create in progress | `mmu_RFID_creating_exit_N` (stopped when API call returns) |
+| Tag found but cannot be resolved to a spool | `mmu_RFID_unresolved_exit_N` (self-terminates) |
+
+- The shared reader already handled `mmu_RFID_creating` and `mmu_RFID_unresolved` via its own effect scheduler. Per-lane effects now use the same `tag_handler.py` call sites, guarded by `not getattr(gate, '_shared', False)`.
+- Effect names are configurable in `nfc_reader.cfg` via five new keys in the base `[nfc_gate]` section: `scan_searching_effect`, `scan_tag_read_effect`, `scan_rewind_effect`, `lane_auto_create_effect`, `lane_unresolved_effect`. Per-lane sections inherit these from the base or can override individually. Set any key to empty to disable that effect.
+- Module constants `LED_SEARCHING`, `LED_TAG_READ`, `LED_REWINDING` in `scan_jog.py` and `LED_AUTO_CREATING`, `LED_UNRESOLVED` in `tag_handler.py` serve as code-level fallbacks only; the live effect name is always read from `gate._xxx_effect` at runtime.
+- The searching effect is deferred to the first reactor timer step (`run_pending_hh_prep`) so it fires from timer context where `gcode.run_script()` is safe.
+- Required: all five base effects must be defined with `define_on: gates` (or `define_on: gates, exit`) in the HH LED config so Klipper generates per-gate `_exit_N` variants automatically. `mmu_RFID_read`, `mmu_RFID_creating`, and `mmu_RFID_unresolved` are already defined this way in `nfc_macros.cfg`.
 
 ---
 

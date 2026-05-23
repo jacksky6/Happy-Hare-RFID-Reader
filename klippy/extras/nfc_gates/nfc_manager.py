@@ -453,7 +453,12 @@ class NFCGateDefaults:
         self.tag_max_pages        = config.getint('tag_max_pages', 16,
                                                    minval=4, maxval=135)
         self.bambu_reads          = config.getboolean('bambu_reads', False)
-        self.spoolman_auto_create = config.getboolean('spoolman_auto_create', False)
+        self.spoolman_auto_create     = config.getboolean('spoolman_auto_create', False)
+        self.scan_searching_effect    = config.get('scan_searching_effect',   'mmu_clockwise_slow')
+        self.scan_tag_read_effect     = config.get('scan_tag_read_effect',    'mmu_RFID_read')
+        self.scan_rewind_effect       = config.get('scan_rewind_effect',      'mmu_anticlock_fast')
+        self.lane_auto_create_effect  = config.get('lane_auto_create_effect', 'mmu_RFID_creating')
+        self.lane_unresolved_effect   = config.get('lane_unresolved_effect',  'mmu_RFID_unresolved')
         if self.bambu_reads and not self.tag_parsing:
             _add_diagnostic_warning(
                 "bambu_reads=True has no effect while tag_parsing=False")
@@ -569,6 +574,11 @@ class NFCGate:
             self._tag_parsing = False
             self._bambu_reads = False
             self._spoolman_auto_create = False
+            self._scan_searching_effect   = d.scan_searching_effect   if d else 'mmu_clockwise_slow'
+            self._scan_tag_read_effect    = d.scan_tag_read_effect    if d else 'mmu_RFID_read'
+            self._scan_rewind_effect      = d.scan_rewind_effect      if d else 'mmu_anticlock_fast'
+            self._lane_auto_create_effect = d.lane_auto_create_effect if d else 'mmu_RFID_creating'
+            self._lane_unresolved_effect  = d.lane_unresolved_effect  if d else 'mmu_RFID_unresolved'
             self._hh_load_paused = False
             self._shared_pending_spool = None
             self._shared_pending_uid = None
@@ -733,6 +743,22 @@ class NFCGate:
                        "be enabled" % self._name)
             logger.warning(warning)
             self._diagnostic_warnings.append(warning)
+        self._scan_searching_effect   = config.get(
+            'scan_searching_effect',
+            d.scan_searching_effect if d else 'mmu_clockwise_slow')
+        self._scan_tag_read_effect    = config.get(
+            'scan_tag_read_effect',
+            d.scan_tag_read_effect if d else 'mmu_RFID_read')
+        self._scan_rewind_effect      = config.get(
+            'scan_rewind_effect',
+            d.scan_rewind_effect if d else 'mmu_anticlock_fast')
+        self._lane_auto_create_effect = config.get(
+            'lane_auto_create_effect',
+            d.lane_auto_create_effect if d else 'mmu_RFID_creating')
+        self._lane_unresolved_effect  = config.get(
+            'lane_unresolved_effect',
+            d.lane_unresolved_effect if d else 'mmu_RFID_unresolved')
+
         self._scan_timer           = None
         self._scan_mode            = False
         self._scan_mm_total        = 0.0

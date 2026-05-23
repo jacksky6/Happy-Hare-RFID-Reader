@@ -17,6 +17,39 @@ import inspect
 from .gate_state import CurrentTag, DIRECT_METADATA_SPOOL
 from .log import logger
 
+LED_AUTO_CREATING = 'mmu_RFID_creating'
+LED_UNRESOLVED    = 'mmu_RFID_unresolved'
+
+
+def _lane_led_effect(gate, effect_name):
+    """Start effect_name on this gate's exit LED (per-gate _exit_N naming)."""
+    gcode = gate.printer.lookup_object('gcode', None)
+    if gcode is None:
+        return
+    gate_effect = "%s_exit_%d" % (effect_name, gate._gate)
+    try:
+        gcode.run_script(
+            "_MMU_SET_LED_EFFECT EFFECT=%s REPLACE=1" % gate_effect)
+    except Exception as e:
+        if gate._debug >= 3:
+            logger.info("[%s]: LED effect %s skipped: %s",
+                        gate._name, gate_effect, e)
+
+
+def _lane_led_stop(gate, effect_name):
+    """Stop effect_name on this gate's exit LED."""
+    gcode = gate.printer.lookup_object('gcode', None)
+    if gcode is None:
+        return
+    gate_effect = "%s_exit_%d" % (effect_name, gate._gate)
+    try:
+        gcode.run_script(
+            "_MMU_SET_LED_EFFECT EFFECT=%s STOP=1" % gate_effect)
+    except Exception as e:
+        if gate._debug >= 3:
+            logger.info("[%s]: LED stop %s skipped: %s",
+                        gate._name, gate_effect, e)
+
 
 # ── NTAG / NDEF helpers ───────────────────────────────────────────────────────
 
@@ -733,6 +766,9 @@ def resolve_spool(gate, uid_hex):
                         gate, '_shared_play_auto_create_effect', None)
                     if play_creating is not None:
                         play_creating()
+                else:
+                    _lane_led_effect(gate,
+                        getattr(gate, '_lane_auto_create_effect', LED_AUTO_CREATING))
                 try:
                     new_spool_id = lb.auto_create_spool(meta, uid_hex=None)
                 finally:
@@ -741,6 +777,9 @@ def resolve_spool(gate, uid_hex):
                             gate, '_shared_stop_auto_create_effect', None)
                         if stop_creating is not None:
                             stop_creating()
+                    else:
+                        _lane_led_stop(gate,
+                            getattr(gate, '_lane_auto_create_effect', LED_AUTO_CREATING))
                 if new_spool_id is not None:
                     new_spool_id = int(new_spool_id)
                     if gate._debug >= 3:
@@ -807,4 +846,7 @@ def resolve_spool(gate, uid_hex):
     if gate._debug >= 3:
         logger.info("[%s]: gate %d — uid=%s  Spoolman→spool_id=None",
                     gate._name, gate._gate, uid_hex)
+    if not getattr(gate, '_shared', False):
+        _lane_led_effect(gate,
+            getattr(gate, '_lane_unresolved_effect', LED_UNRESOLVED))
     return None

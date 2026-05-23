@@ -25,9 +25,75 @@ SCAN_JOG_SUBSTEPS = 3
 LEFT_NEIGHBOR_CLEARANCE_MM = 75.0
 LEFT_NEIGHBOR_CLEARANCE_RETRIES = 3
 
+LED_SEARCHING  = 'mmu_clockwise_slow'
+LED_TAG_READ   = 'mmu_RFID_read'
+LED_REWINDING  = 'mmu_anticlock_fast'
+LED_REASSERT_DELAY = 0.25
+
 
 def _color_tags(text):
     return color_console_tags(text)
+
+
+def _led_effect(gate, effect_name):
+    """Apply effect_name to this gate's LED only (HH _exit_N per-gate naming).
+
+    Called from reactor timer context — run_script is safe here (no GCode mutex held).
+    Must be synchronous so LED state is correct before the next blocking operation.
+    """
+    if not effect_name:
+        return
+    gcode = gate.printer.lookup_object('gcode', None)
+    if gcode is None:
+        return
+    gate_effect = "%s_exit_%d" % (effect_name, gate._gate)
+    logger.info("[%s]: LED effect %s", gate._name, gate_effect)
+    try:
+        gcode.run_script("_MMU_SET_LED_EFFECT EFFECT=%s REPLACE=1" % gate_effect)
+    except Exception as e:
+        logger.warning("[%s]: LED effect %s failed: %s", gate._name, gate_effect, e)
+        gate._console("[WARN] NFC[%s]: LED effect failed — %s" % (gate._name, e))
+
+
+def _led_reassert_callback(gate, eventtime):
+    """Re-apply the scan LED after Happy Hare has had time to repaint LEDs."""
+    effect_name = getattr(gate, '_scan_led_reassert_effect', None)
+    gate._scan_led_reassert_effect = None
+    if effect_name and getattr(gate, '_scan_mode', False):
+        _led_effect(gate, effect_name)
+    return gate.reactor.NEVER
+
+
+def _schedule_led_reassert(gate, effect_name):
+    """Queue a delayed LED reassert so HH LED updates do not win the race."""
+    if not effect_name:
+        return
+    gate._scan_led_reassert_effect = effect_name
+    when = gate.reactor.monotonic() + LED_REASSERT_DELAY
+    if getattr(gate, '_scan_led_timer', None) is None:
+        gate._scan_led_timer = gate.reactor.register_timer(
+            lambda et, _g=gate: _led_reassert_callback(_g, et), when)
+    else:
+        gate.reactor.update_timer(gate._scan_led_timer, when)
+
+
+def _cancel_led_reassert(gate):
+    gate._scan_led_reassert_effect = None
+    timer = getattr(gate, '_scan_led_timer', None)
+    if timer is not None:
+        gate.reactor.update_timer(timer, gate.reactor.NEVER)
+
+
+def _led_release(gate):
+    """Return LED control to Happy Hare."""
+    _cancel_led_reassert(gate)
+    gcode = gate.printer.lookup_object('gcode', None)
+    if gcode is None:
+        return
+    try:
+        gcode.run_script("MMU_GATE_MAP QUIET=1")
+    except Exception as e:
+        logger.warning("[%s]: LED release failed: %s", gate._name, e)
 
 
 
@@ -175,8 +241,13 @@ def run_pending_hh_prep(gate):
     if not getattr(gate, '_scan_hh_prep_pending', False):
         return
     gate._scan_hh_prep_pending = False
+    # HH calls first — both touch MMU_GATE_MAP which resets LED state.
+    # Searching effect fires last, then again shortly after any HH repaint.
     clear_hh_gate_cache(gate)
     sync_spoolman_before_scan(gate)
+    effect_name = getattr(gate, '_scan_searching_effect', LED_SEARCHING)
+    _led_effect(gate, effect_name)
+    _schedule_led_reassert(gate, effect_name)
 
 
 def clear_unresolved_scan(gate):
@@ -254,6 +325,7 @@ def start(gate, max_mm=None):
     gate._hh_load_paused = False
     gate._scan_gate_selected = False  # deferred to first jog (must run from timer, not GCode handler)
     gate._scan_hh_prep_pending = True
+    gate._scan_led_reassert_effect = None
 
     gate._scan_timer = gate.reactor.register_timer(
         gate._scan_step_event,
@@ -273,6 +345,12 @@ def start(gate, max_mm=None):
 def step_event(gate, eventtime):
     if not gate._scan_mode:
         return gate.reactor.NEVER
+
+    # Re-assert searching LED every step after the initial HH prep.
+    # MMU_TEST_MOVE and HH's own LED timer both kill custom effects — this
+    # keeps the clockwise animation alive between and after every jog.
+    if not getattr(gate, '_scan_hh_prep_pending', True):
+        _led_effect(gate, getattr(gate, '_scan_searching_effect', LED_SEARCHING))
 
     if is_printing(gate):
         logger.warning(
@@ -392,6 +470,11 @@ def step_event(gate, eventtime):
             logger.debug("[%s]: run_script MMU_TEST_MOVE MOVE=%.2f QUIET=1",
                          gate._name.capitalize(), chunk)
         gate._run_jog(chunk)
+        # MMU_TEST_MOVE causes HH to update its LED state. Re-assert now and
+        # once more after HH's own LED refresh has had time to land.
+        effect_name = getattr(gate, '_scan_searching_effect', LED_SEARCHING)
+        _led_effect(gate, effect_name)
+        _schedule_led_reassert(gate, effect_name)
         gate._scan_mm_total += chunk
         gate._scan_position_reads_done = 0
         gate._scan_next_chunk_time = (
@@ -640,6 +723,7 @@ def handle_left_neighbor_interference(gate):
 
 def disconnect_cleanup(gate):
     """Leave scan-jog state coherent when Klippy disconnects mid-scan."""
+    _cancel_led_reassert(gate)
     if getattr(gate, '_scan_left_neighbor_shifted', False):
         logger.warning(
             "[%s]: gate %d disconnect during left-neighbor "
@@ -792,6 +876,9 @@ def queue_decode_retry_move(gate, now, uid, reason, max_attempts, retry_mm):
     gate._console(msg)
     reset_uid_only_read(gate, uid)
     gate._run_jog(move)
+    effect_name = getattr(gate, '_scan_searching_effect', LED_SEARCHING)
+    _led_effect(gate, effect_name)
+    _schedule_led_reassert(gate, effect_name)
     gate._scan_mm_total += move
     gate._scan_decode_retry_offset += move
     gate._scan_next_chunk_time = gate.reactor.monotonic() + DECODE_RETRY_SETTLE_DELAY
@@ -862,6 +949,9 @@ def retry_incomplete_decode(gate, now):
     gate._console(msg)
     reset_uid_only_read(gate, uid)
     gate._run_jog(move)
+    effect_name = getattr(gate, '_scan_searching_effect', LED_SEARCHING)
+    _led_effect(gate, effect_name)
+    _schedule_led_reassert(gate, effect_name)
     gate._scan_mm_total += move
     gate._scan_decode_retry_offset += move
     gate._scan_next_chunk_time = gate.reactor.monotonic() + DECODE_RETRY_SETTLE_DELAY
@@ -885,15 +975,23 @@ def continue_decode_retry(gate, now):
 
 
 def finish(gate):
+    _cancel_led_reassert(gate)
     gate._scan_mode = False
     gate._state.miss_count = 0
+    _led_effect(gate, getattr(gate, '_scan_tag_read_effect', LED_TAG_READ))
     found_msg = "[OK] NFC[%s]: tag found" % gate._name.capitalize()
     logger.warning(found_msg)
     gate._console(found_msg)
+    # reactor.pause() yields via greenlet — other reactor timers (including the LED
+    # update timer) keep firing, so the tag-read flash plays in full before rewind.
+    gate.reactor.pause(gate.reactor.monotonic() + 1.0)
     msg = _rewind_message(gate, "[REWIND]")
     logger.warning(msg)
     gate._console(msg)
+    # Rewind LED fires before _run_rewind() so it shows during the entire move.
+    _led_effect(gate, getattr(gate, '_scan_rewind_effect', LED_REWINDING))
     gate._run_rewind()
+    # _led_release() is called at the end of finish() after all work is done.
     msg = _rewind_complete_message(gate)
     logger.warning(msg)
     gate._console(msg)
@@ -940,14 +1038,17 @@ def finish(gate):
     gate._scan_left_neighbor_identity = None
     gate._scan_left_neighbor_attempts = 0
     gate._resume_poll_after_rewind()
+    _led_release(gate)
 
 
 def rewind_and_exit(gate):
+    _cancel_led_reassert(gate)
     gate._scan_mode = False
     gate._state.miss_count = 0
     msg = _rewind_message(gate, "[WARN]", prefix="no tag found; ")
     logger.warning(msg)
     gate._console(msg)
+    _led_effect(gate, getattr(gate, '_scan_rewind_effect', LED_REWINDING))
     gate._run_rewind()
     msg = _rewind_complete_message(gate)
     logger.warning(msg)
@@ -981,6 +1082,7 @@ def rewind_and_exit(gate):
     gate._scan_left_neighbor_identity = None
     gate._scan_left_neighbor_attempts = 0
     gate._resume_poll_after_rewind()
+    _led_release(gate)
 
 
 def console(gate, msg):
