@@ -23,6 +23,7 @@ DEFAULT_I2C_SPEED = {
     'pn532': 100000,
     'pn7160': 100000,
 }
+PN7160_I2C_ADDRESSES = (0x28, 0x29, 0x2A, 0x2B)
 
 
 class BusDefaultConfig:
@@ -63,16 +64,28 @@ def default_i2c_speed(reader_type):
     return DEFAULT_I2C_SPEED.get(reader_type, DEFAULT_I2C_SPEED['pn532'])
 
 
+def validate_reader_i2c_address(config, reader_type, address):
+    if reader_type == 'pn7160' and address not in PN7160_I2C_ADDRESSES:
+        allowed = ', '.join("%d" % addr for addr in PN7160_I2C_ADDRESSES)
+        raise config.error(
+            "nfc_gate [%s]: PN7160 i2c_address must be one of %s "
+            "(0x28-0x2B); got %d"
+            % (config.get_name().split()[-1], allowed, address))
+
+
 def create_reader(config, defaults, reader_type, gate, debug,
                   low_level_debug=False, sleep_fn=None,
                   transceive_delay=0.250, crc_delay=0.050):
     default_addr = (defaults.i2c_address if defaults is not None
                     else default_i2c_address(reader_type))
+    i2c_address = config.getint('i2c_address', default_addr,
+                                minval=0, maxval=127)
+    validate_reader_i2c_address(config, reader_type, i2c_address)
     default_bus = defaults.i2c_bus if defaults is not None else None
     default_speed = default_i2c_speed(reader_type)
     i2c = bus_module.MCU_I2C_from_config(
         BusDefaultConfig(config, default_bus, default_speed),
-        default_addr=default_addr,
+        default_addr=i2c_address,
         default_speed=default_speed)
 
     if reader_type == 'pn532':
