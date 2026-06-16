@@ -56,12 +56,9 @@
 import ast
 import os
 import re
-try:
-    from .. import bus as bus_module
-except ImportError:
-    import bus as bus_module
 
-from . import hh_status, pn532_driver, scan_jog, shared_preload, tag_handler
+from . import (hh_status, pn532_driver, reader_factory, scan_jog,
+               shared_preload, tag_handler)
 from .LED_effect_mgr import (
     EVENT_AUTO_CREATE, EVENT_RELEASE, EVENT_SPOOL_READY, EVENT_TAG_READ,
     EVENT_UNRESOLVED, EVENT_WARNING, LEDEffectManager, shared_effect_name)
@@ -70,7 +67,6 @@ from .gate_state      import (CurrentTag, GateState,
                                DIRECT_METADATA_SPOOL)
 from .klipper_interface import KlipperInterface
 from .log              import configure, logger
-from .pn532_driver     import PN532Driver
 
 try:
     from .log import color_console_tags
@@ -90,7 +86,6 @@ LANE_LED_TEST_DURATION = 2.0
 LANE_LED_TEST_GAP = 0.15
 LANE_LED_TEST_DEFAULT_CYCLES = 2
 LANE_LED_TEST_MAX_CYCLES = 20
-_SUPPORTED_READER_TYPES = ('pn532', 'pn7160')
 
 
 def _spoolman_url_enabled(url):
@@ -265,19 +260,6 @@ def _schedule_lane_led_test(gate, delay, cycles):
         reactor.update_timer(timer, eventtime)
 
 
-class _BusDefaultConfig:
-    """Wraps a Klipper ConfigWrapper to supply an inherited default for i2c_bus."""
-    def __init__(self, config, default_bus):
-        self._cfg = config
-        self._default_bus = default_bus
-    def get(self, key, default=None):
-        if key == 'i2c_bus':
-            return self._cfg.get(key, self._default_bus if default is None else default)
-        return self._cfg.get(key, default)
-    def __getattr__(self, name):
-        return getattr(self._cfg, name)
-
-
 # ─────────────────────────────────────────────────────────────────────────────
 # NFCGateDefaults / NFCGate — per-lane I2C/PN532 path
 # ─────────────────────────────────────────────────────────────────────────────
@@ -352,16 +334,6 @@ def _optional_float_config(config, key, default=None, minval=None, maxval=None):
     if maxval is not None and value > maxval:
         raise config.error("Option '%s' must be at most %.3f" % (key, maxval))
     return value
-
-
-def _reader_type_from_config(config, default='pn532'):
-    reader_type = str(config.get('reader_type', default)).strip().lower()
-    if reader_type not in _SUPPORTED_READER_TYPES:
-        raise config.error(
-            "Invalid reader_type '%s' in [%s]; supported values: %s"
-            % (reader_type, config.get_name(),
-               ', '.join(_SUPPORTED_READER_TYPES)))
-    return reader_type
 
 
 def _raw_klipper_config(printer):
@@ -605,7 +577,7 @@ def _nfc_help(gcmd=None):
 
 class NFCGateDefaults:
     def __init__(self, config):
-        self.reader_type        = _reader_type_from_config(config)
+        self.reader_type        = reader_factory.reader_type_from_config(config)
         self.spoolman_url       = config.get('spoolman_url', '')
         self.moonraker_url      = config.get('moonraker_url',
                                              'http://127.0.0.1:7125')
@@ -752,7 +724,7 @@ class NFCGate:
         # Read shared first — it controls how subsequent params are parsed.
         self._shared = config.getboolean('shared', False)
         self._enabled = config.getboolean('enabled', True)
-        self._reader_type = _reader_type_from_config(
+        self._reader_type = reader_factory.reader_type_from_config(
             config, d.reader_type if d else 'pn532')
         if self._shared and self._enabled:
             global _shared_configured
@@ -783,7 +755,7 @@ class NFCGate:
             self._absent_threshold = 3
             self._debug = d.debug if d else 2
             self._low_level_debug = False
-            self._reader_type = _reader_type_from_config(
+            self._reader_type = reader_factory.reader_type_from_config(
                 config, d.reader_type if d else 'pn532')
             self._console_output = d.console_output if d else False
             self._console_log_level = d.console_log_level if d else 'warning'
@@ -883,23 +855,12 @@ class NFCGate:
                         "[nfc_gate] or [nfc_gate %s]. Use 'auto' to read Moonraker.",
                         self._name, self._name)
 
-        default_i2c_addr = d.i2c_address if d else 0x24
-        default_i2c_bus  = d.i2c_bus if d else None
-        i2c = bus_module.MCU_I2C_from_config(
-            _BusDefaultConfig(config, default_i2c_bus),
-            default_addr=default_i2c_addr,
-            default_speed=100000)
-
-        if self._reader_type != 'pn532':
-            raise config.error(
-                "nfc_gate [%s]: reader_type '%s' is recognized, but its "
-                "driver is not integrated yet"
-                % (self._name, self._reader_type))
-        self._reader     = PN532Driver(i2c, self._gate,
-                                       transceive_delay, crc_delay,
-                                       self._debug,
-                                       low_level_debug=self._low_level_debug,
-                                       sleep_fn=self._reactor_sleep)
+        self._reader     = reader_factory.create_reader(
+            config, d, self._reader_type, self._gate, self._debug,
+            low_level_debug=self._low_level_debug,
+            sleep_fn=self._reactor_sleep,
+            transceive_delay=transceive_delay,
+            crc_delay=crc_delay)
         self._state      = GateState(self._gate, self._absent_threshold)
         self._suppress_next_dispatch_uid   = None
         self._suppress_next_dispatch_spool = None  # paired with uid — suppress only when both match
