@@ -4,6 +4,22 @@
 
 ---
 
+## Quick Links
+
+- [Start Here: MCU Firmware](#start-here-mcu-firmware)
+- [Klipper Won't Start - Config Errors](#klipper-wont-start--config-errors)
+- [PN532 Not Responding](#pn532-not-responding)
+- [PN7160 Not Responding](#pn7160-not-responding)
+  - [`connect_nci failed: I2C label=CORE_RESET status=START_NACK`](#connect_nci-failed-i2c-labelcore_reset-statusstart_nack)
+  - [`Unable to obtain 'i2c_read_response' response`](#unable-to-obtain-i2c_read_response-response)
+- [BME280 Fails After PN532 Is Added](#bme280-fails-after-pn532-is-added)
+- [Tag Detected But No Spool Found](#tag-detected-but-no-spool-found)
+- [False Spool Removals](#false-spool-removals)
+- [Happy Hare Not Updating](#happy-hare-not-updating)
+- [Diagnostic Command Summary](#diagnostic-command-summary)
+
+---
+
 ## Start Here: MCU Firmware
 
 > [!CAUTION]
@@ -79,6 +95,37 @@ Still failing? Go to [Expert: Low-Level I2C Debugging](../shared/expert-low-leve
 ## PN7160 Not Responding
 
 PN7160 startup problems are usually address, bus, or reset related.
+
+### `connect_nci failed: I2C label=CORE_RESET status=START_NACK`
+
+The MCU could not start an I2C transaction with the PN7160 while sending the
+NCI `CORE_RESET` command. In practice this means the PN7160 did not answer on
+the configured I2C bus.
+
+Common causes:
+
+- SDA/SCL wiring is disconnected, swapped, or on the wrong MCU pins.
+- `i2c_mcu`, `i2c_bus`, or `i2c_address` does not match the hardware.
+- The PN7160 is not powered, does not share ground with the MCU, or is held in
+  reset.
+- The PN7160 is stuck after a failed debug run, forced Klipper stop, or bus
+  error.
+
+After checking wiring and config, run:
+
+```gcode
+NFC GATE=0 INIT=1
+```
+
+or for the shared reader:
+
+```gcode
+NFC_SHARED INIT=1
+```
+
+If wiring and config look correct but the PN7160 still cannot communicate, power
+cycle the PN7160 module. This is especially important when `ven_pin` is not
+wired, because Klipper cannot hard-reset the chip without removing power.
 
 Check in this order:
 
