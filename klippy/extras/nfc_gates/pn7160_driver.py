@@ -497,9 +497,8 @@ class PN7160Handler:
         """Authenticate a MIFARE Classic sector on the active TAGCMD session.
 
         MIFARE Classic auth is a controller-side helper command, not the tag's
-        over-the-air auth exchange.  Android's MifareClassic stack sends this
-        helper as AUTH_A/B, block, key[6], UID[4].  Keep this builder local to
-        PN7160 because PN532 wraps the same fields inside InDataExchange.
+        over-the-air auth exchange.  Keep this builder local to PN7160 because
+        PN532 wraps the same fields inside InDataExchange.
 
         MIFARE Classic auth is unusual: successful auth may not return a tag
         DATA frame.  PN7160 still returns a CORE_CONN_CREDITS notification when
@@ -513,7 +512,11 @@ class PN7160Handler:
         if len(key) != 6:
             raise PN7160Error("MIFARE auth requires 6-byte key")
         auth_cmd = MIFARE_CMD_AUTH_B if use_key_b else MIFARE_CMD_AUTH_A
-        payload = [auth_cmd, block_addr & 0xff] + key + uid
+        # Key derivation uses the displayed activation UID.  The PN7160/NCI
+        # helper may expect the UID bytes in the lower-level MIFARE order, so
+        # keep this reversal scoped to the auth command payload only.
+        auth_uid = list(reversed(uid))
+        payload = [auth_cmd, block_addr & 0xff] + key + auth_uid
         label = "MIFARE_AUTH_%02X" % (block_addr & 0xff,)
         frame = [0x00, 0x00, len(payload)] + payload
         self._debug("data transceive %s payload=%s"
