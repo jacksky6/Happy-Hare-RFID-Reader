@@ -632,12 +632,15 @@ class PN7160Handler:
         for sector in sectors:
             if stop_after_failure:
                 break
-            trailer = sector * 4 + 3
+            # PN532 authenticates against the sector trailer.  PN7160/NCI raw
+            # MIFARE auth is tested against the first block we are about to
+            # read, matching the libnfc-nci example more closely.
+            auth_block = sector * 4
             key = sector_keys[sector] if sector < len(sector_keys) else None
             if key is None:
                 continue
             if not self.mifare_authenticate(
-                    trailer, key, uid_bytes, timeout=timeout):
+                    auth_block, key, uid_bytes, timeout=timeout):
                 auth_failed_sectors.append(sector)
                 stop_after_failure = True
                 break
