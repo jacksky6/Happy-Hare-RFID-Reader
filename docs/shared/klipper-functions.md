@@ -317,10 +317,10 @@ Scan-jog supports two motion modes:
 
 | Mode | Config | Behavior |
 |---|---|---|
-| Stopped | `scan_motion_mode: stopped` | Default. Divides each `scan_jog_mm` chunk into three blocking `MMU_TEST_MOVE` substeps, then reads at stopped spool positions. `scan_reads_per_position` and `scan_poll_interval` control the stopped-position reads. |
-| Continuous | `scan_motion_mode: continuous` | Experimental. Queues each forward search chunk through Happy Hare's MMU toolhead and polls NFC every `scan_continuous_poll_interval` while that chunk is estimated to be moving. If a tag is found during motion, the current chunk is allowed to finish before the existing 0.1 second read-light hold, rewind, and completion logic run. |
+| Continuous | `scan_motion_mode: continuous` | **Default.** Queues each forward search chunk through Happy Hare's MMU toolhead and polls NFC every `scan_continuous_poll_interval` while that chunk is estimated to be moving. If a tag is found during motion, the current chunk is allowed to finish before the existing 0.1 second read-light hold, rewind, and completion logic run. |
+| Stopped | `scan_motion_mode: stopped` | Divides each `scan_jog_mm` chunk into three blocking `MMU_TEST_MOVE` substeps, then reads at stopped spool positions. `scan_reads_per_position` and `scan_poll_interval` control the stopped-position reads. More reliable for marginal reader or tag alignment at the cost of scan speed. |
 
-Continuous scan example:
+Default continuous scan settings:
 
 ```ini
 [nfc_gate]

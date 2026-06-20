@@ -109,11 +109,15 @@ _scan_step_event  (stopped mode: after each jog substep completes)
 
 `_poll()` during a scan step is identical to a normal poll — I2C read, Spoolman lookup, `GateState.process_read`, macro dispatch. The only difference is that `GateState.miss_count` does not increment on a no-read during scan (a blank read while the spool rotates is not an absence event).
 
-`scan_motion_mode: stopped` is the default. It uses blocking `MMU_TEST_MOVE`
-substeps and reads only while the spool is stopped.
+`scan_motion_mode: continuous` is the default. It changes only the forward search
+jog — tag-found actions, the 0.1 second read-light hold, rewind, and completion
+logic are identical in both modes:
 
-`scan_motion_mode: continuous` is opt-in. It changes only the forward search
-jog:
+`scan_motion_mode: stopped` is the alternative. It uses blocking `MMU_TEST_MOVE`
+substeps and reads only while the spool is stopped. Use this for marginal reader
+or tag alignment where continuous polling misses the tag.
+
+Continuous mode forward search:
 
 ```
 _scan_step_event  (continuous mode)

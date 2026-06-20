@@ -128,7 +128,7 @@ def _gcmd_get_any(gcmd, names, default=None):
     return default
 
 
-def _get_scan_motion_mode(config, default='stopped'):
+def _get_scan_motion_mode(config, default='continuous'):
     mode = str(config.get('scan_motion_mode', default) or '').strip().lower()
     if mode not in ('stopped', 'continuous'):
         raise config.error(
@@ -635,7 +635,7 @@ class NFCGateDefaults:
             minval=1, maxval=20)
         self.scan_poll_interval = config.getfloat('scan_poll_interval', 0.1,
                                                    minval=0.1, maxval=5.0)
-        self.scan_motion_mode = _get_scan_motion_mode(config, 'stopped')
+        self.scan_motion_mode = _get_scan_motion_mode(config, 'continuous')
         self.scan_continuous_step_mm = config.getfloat(
             'scan_continuous_step_mm', 50.0,
             minval=1.0, maxval=500.0)
@@ -791,7 +791,7 @@ class NFCGate:
             self._failed = False
             self._polling = False
             self._scan_enabled = False
-            self._scan_motion_mode = d.scan_motion_mode if d else 'stopped'
+            self._scan_motion_mode = d.scan_motion_mode if d else 'continuous'
             self._scan_continuous_step_mm = d.scan_continuous_step_mm if d else 50.0
             self._scan_continuous_speed = d.scan_continuous_speed if d else 150.0
             self._scan_continuous_accel = d.scan_continuous_accel if d else 2000.0
@@ -938,7 +938,7 @@ class NFCGate:
                                                     d.scan_poll_interval if d else 0.1,
                                                     minval=0.1, maxval=5.0)
         self._scan_motion_mode = _get_scan_motion_mode(
-            config, d.scan_motion_mode if d else 'stopped')
+            config, d.scan_motion_mode if d else 'continuous')
         self._scan_continuous_step_mm = config.getfloat(
             'scan_continuous_step_mm',
             d.scan_continuous_step_mm if d else 50.0,

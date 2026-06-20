@@ -24,7 +24,10 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 - Fixed `NFC GATE=<#> HELP=1` incorrectly triggering the low-level PN532 debug path. `low_level_debug_requested()` checks for a `HELP` parameter, so `HELP=1` was intercepted before the per-gate help handler ran, producing spurious `polling paused for low-level PN532 debug` and `low_level_debug is disabled in config` console messages. The HELP check now runs first in `cmd_NFC`.
 - Corrected the help text entry from `NFC GATE=<#> HELP` to `NFC GATE=<#> HELP=1` to match the required Klipper parameter style.
 
-### Scan-Jog Continuous Mode
+### Scan-Jog Continuous Mode — Now Default
+
+- Promoted continuous scan-jog to the default motion mode. `scan_motion_mode: continuous` is now the out-of-the-box setting in `nfc_reader.cfg` and the Python fallback default. `scan_motion_mode: stopped` remains fully supported for marginal reader or tag alignment where continuous polling misses the tag.
+- Updated `docs/shared/configuration.md`, `docs/shared/klipper-functions.md`, and `docs/shared/how-it-works.md` to reflect continuous as the default and document stopped as the alternative.
 
 - Added opt-in continuous scan-jog mode via `scan_motion_mode: continuous`.
   Continuous mode queues forward search chunks through Happy Hare's MMU toolhead

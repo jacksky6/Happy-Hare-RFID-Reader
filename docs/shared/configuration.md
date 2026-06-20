@@ -185,7 +185,7 @@ scan_rewind_buffer_mm: 30.0
 scan_decode_retry_mm:     2.0
 scan_decode_retry_rounds: 5
 scan_poll_interval:    0.25
-scan_motion_mode: stopped
+scan_motion_mode: continuous
 scan_continuous_step_mm: 50.0
 scan_continuous_speed: 150.0
 scan_continuous_accel: 2000.0
@@ -202,7 +202,7 @@ scan_continuous_poll_interval: 0.05
 | `scan_decode_retry_mm` | `2.0` | Distance between nearby retry positions after a UID is found but the rich tag payload is marked incomplete. |
 | `scan_decode_retry_rounds` | `5` | Nearby retry rounds before accepting the current UID/metadata result. Each round probes both sides of the first UID hit. |
 | `scan_poll_interval` | `0.25` | Seconds between stopped-position NFC read attempts during scan-jog. The shared reader also uses this value as its active polling cadence. Since Happy Hare `MMU_TEST_MOVE` blocks by default, this is not a read-while-moving interval. |
-| `scan_motion_mode` | `stopped` | `stopped` keeps the existing blocking substep scan. `continuous` queues the forward search chunk through Happy Hare's MMU toolhead and polls NFC while that chunk is estimated to be moving. |
+| `scan_motion_mode` | `continuous` | `continuous` (default) queues the forward search chunk through Happy Hare's MMU toolhead and polls NFC while that chunk is estimated to be moving. `stopped` uses blocking MMU_TEST_MOVE substeps with reads at each stopped spool position — use this for marginal reader or tag alignment. |
 | `scan_continuous_step_mm` | `50.0` | Continuous-mode forward search chunk size. This is also the maximum intended overrun after a tag is detected because the current chunk is allowed to finish before rewind. |
 | `scan_continuous_speed` | `150.0` | Continuous-mode gear move speed in mm/s. |
 | `scan_continuous_accel` | `2000.0` | Continuous-mode gear move acceleration in mm/s^2. At `50mm`, `150mm/s`, `2000mm/s^2`, each move takes about `0.408s`. |
