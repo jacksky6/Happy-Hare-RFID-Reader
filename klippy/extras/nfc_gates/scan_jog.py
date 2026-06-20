@@ -645,13 +645,13 @@ def continuous_step_event(gate, eventtime):
            % (gate._name.capitalize(), move, next_position, gate._scan_max_mm))
     logger.info(msg)
     gate._console(msg)
-    if gate._debug >= 4:
-        logger.debug(
-            "[%s]: run_script MMU_TEST_MOVE MOVE=%.2f SPEED=%.1f ACCEL=%.1f WAIT=0 QUIET=1",
-            gate._name.capitalize(), move,
-            gate._scan_continuous_speed, gate._scan_continuous_accel)
     command_start = gate.reactor.monotonic()
     move_path = run_continuous_jog(gate, move)
+    if gate._debug >= 4:
+        logger.debug(
+            "[%s]: jogging filament %.2fmm at %.1fmm/s accel=%.1fmm/s^2 (path=%s)",
+            gate._name.capitalize(), move,
+            gate._scan_continuous_speed, gate._scan_continuous_accel, move_path)
     command_elapsed = max(0.0, gate.reactor.monotonic() - command_start)
     expected_duration = continuous_chunk_interval(gate, move)
     remaining_duration = max(0.0, expected_duration - command_elapsed)
