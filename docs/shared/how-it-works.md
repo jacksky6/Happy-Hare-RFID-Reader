@@ -121,7 +121,7 @@ _scan_step_event  (continuous mode)
   └─ print started? → rewind and exit
   └─ _poll()
        └─ tag found? → existing _finish_scan()
-            └─ 1 second read-light hold
+            └─ 0.1 second read-light hold
             └─ rewind
             └─ dispatch cached tag/spool event
   └─ scan limit reached? → rewind and exit

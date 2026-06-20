@@ -23,7 +23,7 @@ Branch: `CW-Development`
   does not need to pass `MOTOR=gear`.
 - Tag-found handling still uses the existing scan completion path:
   - stop queueing forward moves
-  - preserve the 1 second read-light hold
+  - preserve the 0.1 second read-light hold
   - rewind using the existing rewind path
   - dispatch the cached tag/spool action after rewind
 - Decode retry moves remain on the existing stopped/blocking retry path.

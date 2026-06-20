@@ -217,7 +217,7 @@ scan_continuous_poll_interval: 0.05
 ```
 
 Continuous mode preserves the existing tag-found flow: the read-light effect
-plays for about 1 second, then NFC rewinds and dispatches the cached tag/spool
+plays for about 0.1 second, then NFC rewinds and dispatches the cached tag/spool
 action just like stopped mode.
 
 Set `enabled: False` on a `[nfc_gate laneN]` or `[nfc_gate shared]` section to keep the config block in place without initializing hardware or registering commands for that reader.

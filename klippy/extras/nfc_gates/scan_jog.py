@@ -26,6 +26,7 @@ DECODE_RETRY_SETTLE_DELAY = 1.0
 SCAN_JOG_SUBSTEPS = 3
 LEFT_NEIGHBOR_CLEARANCE_MM = 75.0
 LEFT_NEIGHBOR_CLEARANCE_RETRIES = 3
+TAG_READ_HOLD_DELAY = 0.1
 
 LED_SEARCHING  = 'mmu_clockwise_slow'
 LED_TAG_READ   = 'mmu_RFID_read'
@@ -1141,8 +1142,8 @@ def finish(gate):
     logger.info(found_msg)
     gate._console(found_msg)
     # reactor.pause() yields via greenlet — other reactor timers (including the LED
-    # update timer) keep firing, so the tag-read flash plays in full before rewind.
-    gate.reactor.pause(gate.reactor.monotonic() + 1.0)
+    # update timer) keep firing, so the tag-read flash is visible before rewind.
+    gate.reactor.pause(gate.reactor.monotonic() + TAG_READ_HOLD_DELAY)
     msg = _rewind_message(gate, "[REWIND]")
     logger.info(msg)
     gate._console(msg)

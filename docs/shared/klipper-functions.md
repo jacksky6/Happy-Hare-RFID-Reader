@@ -318,7 +318,7 @@ Scan-jog supports two motion modes:
 | Mode | Config | Behavior |
 |---|---|---|
 | Stopped | `scan_motion_mode: stopped` | Default. Divides each `scan_jog_mm` chunk into three blocking `MMU_TEST_MOVE` substeps, then reads at stopped spool positions. `scan_reads_per_position` and `scan_poll_interval` control the stopped-position reads. |
-| Continuous | `scan_motion_mode: continuous` | Experimental. Queues `MMU_TEST_MOVE WAIT=0` forward search chunks and reads once after each chunk's estimated completion plus `scan_continuous_poll_interval`. Tag-found actions, the 1 second read-light hold, rewind, and completion logic are unchanged. |
+| Continuous | `scan_motion_mode: continuous` | Experimental. Queues `MMU_TEST_MOVE WAIT=0` forward search chunks and reads once after each chunk's estimated completion plus `scan_continuous_poll_interval`. Tag-found actions, the 0.1 second read-light hold, rewind, and completion logic are unchanged. |
 
 Continuous scan example:
 

@@ -11,7 +11,7 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 - Added opt-in continuous scan-jog mode via `scan_motion_mode: continuous`.
   Continuous mode queues `MMU_TEST_MOVE WAIT=0` forward search chunks while
-  preserving existing tag-found actions, the 1 second read-light hold, rewind,
+  preserving existing tag-found actions, the 0.1 second read-light hold, rewind,
   and completion logic.
 - Added continuous scan settings:
   `scan_continuous_step_mm`, `scan_continuous_speed`,

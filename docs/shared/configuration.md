@@ -214,7 +214,7 @@ just read, NFC moves the left neighbor 75 mm out of range, continues scanning,
 and restores the neighbor on scan exit.
 
 Continuous scan mode preserves the existing tag-found path: tag actions are
-cached until after rewind, the 1 second read-light hold still plays before the
+cached until after rewind, the 0.1 second read-light hold still plays before the
 rewind effect, and `_scan_mm_total` still drives the final rewind distance.
 
 **Happy Hare post-preload hook (alternative to automatic polling):**

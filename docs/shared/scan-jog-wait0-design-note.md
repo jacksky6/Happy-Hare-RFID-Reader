@@ -75,7 +75,7 @@ gap between chunks. The first implementation should check for a tag during that
 0.05 s gap after each chunk completes, then either queue the next chunk or stop
 the jog flow and let the existing tag handling finish the scan.
 
-The existing `finish()` path intentionally pauses for about 1.0 second after a
+The existing `finish()` path intentionally pauses for about 0.1 second after a
 tag is found so the `scan_tag_read_effect` / read-light effect is visible before
 the rewind effect starts. Continuous mode should keep that behavior. The motion
 change is only the forward jog pacing.
@@ -216,7 +216,7 @@ If Happy Hare ignores `QUIET=1` on `MMU_TEST_MOVE`, omit it.
   the prior small move has passed.
 - Use the existing tag read actions and existing scan completion logic after a
   tag is found. Continuous mode only changes how jog moves are queued.
-- Preserve the existing 1.0 s read-light hold before rewind.
+- Preserve the existing 0.1 s read-light hold before rewind.
 - With 50 mm chunks, worst-case tag overshoot is roughly one chunk plus the
   0.05 s check gap and scheduler latency.
 - Do not attempt true emergency mid-move stop in the first implementation.
@@ -241,7 +241,7 @@ Expected behavior:
   the next chunk is queued.
 - Effective scan advance should be roughly 109 mm/s with these defaults.
 - If a tag is read during the check window, no more motion is queued and the
-  existing tag read actions, 1.0 s read-light hold, rewind, and completion logic
+  existing tag read actions, 0.1 s read-light hold, rewind, and completion logic
   run.
 - Rewind distance should still be based on `_scan_mm_total`, so the existing
   parking handoff remains usable.
