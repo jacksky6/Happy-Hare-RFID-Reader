@@ -54,7 +54,7 @@ choice_style() {
 }
 
 prompt_style() {
-    printf '%s%s%s' "${BOLD}" "$1" "${RESET}"
+    printf '%s' "$1"
 }
 
 print_banner() {

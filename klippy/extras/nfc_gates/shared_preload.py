@@ -198,7 +198,7 @@ class SharedPreloadCoordinator:
         if gate._shared_pending_spool is None:
             logger.info(
                 "[%s]: PRELOAD_CLEAR_ASSIGNED — spool %d already "
-                "owned by HH; shared pending was already clear%s",
+                "owned by Happy Hare; shared pending was already clear%s",
                 gate._name, spool_id, " after expiry" if expired else "")
             gate._shared_last_action = (
                 "ignored per-lane clear for spool %d; no shared pending"
@@ -206,7 +206,7 @@ class SharedPreloadCoordinator:
             return
         if gate._shared_pending_spool != spool_id:
             logger.warning(
-                "[%s]: PRELOAD_CLEAR_ASSIGNED — HH owns spool %d "
+                "[%s]: PRELOAD_CLEAR_ASSIGNED — Happy Hare owns spool %d "
                 "but shared pending is spool %d; leaving pending intact",
                 gate._name, spool_id, gate._shared_pending_spool)
             gate._shared_last_action = (
@@ -235,7 +235,7 @@ class SharedPreloadCoordinator:
                 % (gate._name, spool_id, where)))
         gate._shared_clear_pending()
         gate._shared_last_action = (
-            "cleared spool %d because HH already had it assigned" % spool_id)
+            "cleared spool %d because Happy Hare already had it assigned" % spool_id)
         gate._shared_read_deadline = 0.0
         gate._polling = True
         gate.reactor.update_timer(gate._poll_timer, gate.reactor.NOW)

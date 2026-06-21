@@ -33,19 +33,19 @@ class HHGateStatus:
         return self.action == 'idle'
 
     def label(self):
-        """Return a short human-readable string describing this gate's HH assignment."""
+        """Return a short human-readable string describing this gate's Happy Hare assignment."""
         if not self.present:
-            return "HH: n/a"
+            return "Happy Hare: n/a"
         if self.gate < 0 or (self.gate_count > 0 and self.gate >= self.gate_count):
-            return "HH: unknown"
+            return "Happy Hare: unknown"
         if self.active_gate == self.gate and self.filament_pos > 0:
-            return "HH: spool %d  loading (pos %d)" % (self.spool, self.filament_pos)
+            return "Happy Hare: spool %d  loading (pos %d)" % (self.spool, self.filament_pos)
         if self.assigned:
-            return "HH: spool %d  %s" % (
+            return "Happy Hare: spool %d  %s" % (
                 self.spool, "available" if self.available else "assigned")
         if self.available:
-            return "HH: found/no spool"
-        return "HH: empty"
+            return "Happy Hare: found/no spool"
+        return "Happy Hare: empty"
 
 
 class HHFullStatus:
@@ -72,10 +72,10 @@ def _as_int(value, default=-1):
 
 
 def read(printer, gate, eventtime=None):
-    """Return parsed HH status for one gate.
+    """Return parsed Happy Hare status for one gate.
 
     Missing Happy Hare, missing keys, short lists, and non-integer values all
-    degrade to safe defaults so NFC can keep operating without HH installed.
+    degrade to safe defaults so NFC can keep operating without Happy Hare installed.
     """
     mmu = printer.lookup_object('mmu', None)
     if mmu is None:
@@ -115,7 +115,7 @@ def read(printer, gate, eventtime=None):
 
 
 def read_full(printer, eventtime=None):
-    """Return parsed HH status across all gates."""
+    """Return parsed Happy Hare status across all gates."""
     mmu = printer.lookup_object('mmu', None)
     if mmu is None:
         return HHFullStatus()

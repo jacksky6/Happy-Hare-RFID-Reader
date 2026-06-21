@@ -95,7 +95,7 @@ Initialization sets `_prev_gate_status = -1` so a cold-start with status already
 ### Scan loop
 
 ```
-_scan_step_event  (after each jog chunk completes)
+_scan_step_event  (stopped mode: after each jog substep completes)
   └─ print started?  →  rewind and exit
   └─ _poll()
        └─ tag found?  →  _finish_scan()
@@ -108,6 +108,47 @@ _scan_step_event  (after each jog chunk completes)
 ```
 
 `_poll()` during a scan step is identical to a normal poll — I2C read, Spoolman lookup, `GateState.process_read`, macro dispatch. The only difference is that `GateState.miss_count` does not increment on a no-read during scan (a blank read while the spool rotates is not an absence event).
+
+`scan_motion_mode: continuous` is the default. It changes only the forward search
+jog — tag-found actions, the 0.1 second read-light hold, rewind, and completion
+logic are identical in both modes:
+
+`scan_motion_mode: stopped` is the alternative. It uses blocking `MMU_TEST_MOVE`
+substeps and reads only while the spool is stopped. Use this for marginal reader
+or tag alignment where continuous polling misses the tag.
+
+Continuous mode forward search:
+
+```
+_scan_step_event  (continuous mode)
+  └─ print started? → rewind and exit
+  └─ _poll()
+       └─ UID found while chunk is moving? → wait for current chunk to finish
+       └─ Spoolman UID lookup succeeds? → existing _finish_scan()
+       └─ UID unresolved and rich parsing enabled? → back up from continuous overshoot
+       └─ rich payload incomplete? → retry around backed-up position
+       └─ tag found after chunk is done? → existing _finish_scan()
+            └─ 0.1 second read-light hold
+            └─ rewind
+            └─ dispatch cached tag/spool event
+  └─ current chunk still estimated in flight? → poll again after scan_continuous_poll_interval
+  └─ scan limit reached? → rewind and exit
+  └─ queue direct Happy Hare MMU-toolhead gear move for the next 50mm chunk
+  └─ poll again after scan_continuous_poll_interval
+```
+
+The shipped continuous defaults are 50 mm chunks at 150 mm/s and 2000 mm/s^2,
+with a 0.05 s in-flight read cadence. That profile spends most of the move at
+speed: about 0.408 s moving, or roughly 123 mm/s before NFC read time is
+included. Continuous mode bypasses the public `MMU_TEST_MOVE` G-code wrapper for
+the forward search path and queues the move through Happy Hare's MMU toolhead.
+During in-flight continuous motion, NFC uses a UID-only probe and avoids rich tag
+parsing. After the current chunk finishes, Spoolman UID lookup runs first. If
+the UID resolves, scan-jog can finish without any rich read. If the UID does not
+resolve and rich parsing is enabled, NFC backs up by
+`scan_continuous_overshoot_backup_mm` to recover from chunk overshoot. After
+that one-time recenter move, decode retry moves for incomplete rich tag reads
+stay on the existing stopped/blocking retry path.
 
 ### Class-level scan lock
 

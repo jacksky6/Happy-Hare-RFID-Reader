@@ -5,6 +5,59 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ---
 
+## [Unreleased] - Continuous Scan - WoodWorker
+
+### Console Output and Logging
+
+- Replaced all abbreviated `HH` references with `Happy Hare` across log strings, console messages, docstrings, and user-visible status text in `nfc_manager.py`, `scan_jog.py`, `shared_preload.py`, and `hh_status.py`. `HH_SYNC` macro/command names and the `HH:MM:SS` datetime format in `log.py` are unchanged.
+- Changed `[SCAN]`, `[REWIND]`, and `[OK]` tagged scan-jog messages to appear at `console_log_level: 2`, matching the warning threshold. Previously all scan-jog messages required level 3. Verbose detail lines with no tag (move-queued timing, LED state changes) still require level 3.
+- Changed continuous jog move logging so it reports the actual execution path:
+  `Direct Move` for direct Happy Hare MMU-toolhead moves or `MMU_TEST_MOVE` for
+  the G-code fallback. The user-visible `[SCAN]` move line now fires after the
+  call so it accurately reflects what was executed.
+
+### Macro Naming Consistency
+
+- The configured lane name (e.g. `lane0` from `[nfc_gate lane0]` in `nfc_reader_hw.cfg`) is now forwarded to all three NFC event macros as a `READER=` parameter. `_NFC_SPOOL_CHANGED`, `_NFC_SPOOL_REMOVED`, and `_NFC_TAG_NO_SPOOL` use `params.READER | default('Lane' ~ gate)` so console output reads `NFC[lane0]:` matching the section name in hardware config rather than a hardcoded `NFC gate N:` format.
+- Capitalized `Gate` (capital G) in the remaining user-visible macro output lines — `NFC_HH_SYNC_CACHE` sync progress and `_NFC_SCAN_UNRESOLVED` — to match the capitalization used by `NFC_STATUS`.
+
+### Command Fixes
+
+- Added `NFC GATE=<#> JOG_SCAN=1` to the `NFC_HELP` output. The command existed but was only documented in the per-gate `NFC GATE=<#> HELP=1` listing.
+- Fixed `NFC GATE=<#> HELP=1` incorrectly triggering the low-level PN532 debug path. `low_level_debug_requested()` checks for a `HELP` parameter, so `HELP=1` was intercepted before the per-gate help handler ran, producing spurious `polling paused for low-level PN532 debug` and `low_level_debug is disabled in config` console messages. The HELP check now runs first in `cmd_NFC`.
+- Corrected the help text entry from `NFC GATE=<#> HELP` to `NFC GATE=<#> HELP=1` to match the required Klipper parameter style.
+
+### Scan-Jog Continuous Mode — Now Default
+
+- Promoted continuous scan-jog to the default motion mode. `scan_motion_mode: continuous` is now the out-of-the-box setting in `nfc_reader.cfg` and the Python fallback default. `scan_motion_mode: stopped` remains fully supported for marginal reader or tag alignment where continuous polling misses the tag.
+- Updated `docs/shared/configuration.md`, `docs/shared/klipper-functions.md`, and `docs/shared/how-it-works.md` to reflect continuous as the default and document stopped as the alternative.
+
+- Added opt-in continuous scan-jog mode via `scan_motion_mode: continuous`.
+  Continuous mode queues forward search chunks through Happy Hare's MMU toolhead
+  and polls NFC while the chunk is estimated to be moving, while preserving
+  existing tag-found actions, the 0.1 second read-light hold, rewind, and
+  completion logic.
+- Added continuous scan settings:
+  `scan_continuous_step_mm`, `scan_continuous_speed`,
+  `scan_continuous_accel`, `scan_continuous_poll_interval`, and
+  `scan_continuous_overshoot_backup_mm`.
+- Changed the default rich-tag decode retry spacing from 2 mm to 5 mm and added
+  a one-time continuous-mode overshoot backtrack before rich parsing/retries when
+  a UID hit does not resolve through Spoolman.
+- Changed continuous in-flight scanning to perform a UID-only probe while the
+  chunk is moving, then defer Spoolman lookup and rich tag parsing until the
+  current chunk has finished.
+- Documented the tested continuous profile: 50 mm chunks at 150 mm/s with
+  2000 mm/s^2 acceleration and a 0.05 s in-flight tag-check cadence.
+- Added direct Happy Hare MMU-toolhead forward jog support for continuous scan,
+  with `MMU_TEST_MOVE WAIT=0` retained as a compatibility fallback.
+- Reduced repeated continuous-mode search LED calls by removing the top-of-loop
+  LED reapply while keeping the post-move reassertion.
+- Fixed scan-jog direct console messages so they respect `console_output` and
+  `console_log_level` instead of always calling `respond_info`.
+
+---
+
 ## [0.9.23] - 06/01/2026 - WoodWorker
 
 ### Installer Prompt Cleanup
