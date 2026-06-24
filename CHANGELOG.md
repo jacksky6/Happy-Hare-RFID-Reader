@@ -7,6 +7,28 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ## [Unreleased] - Continuous Scan - WoodWorker
 
+### Spoolman-Disabled Support
+
+- Added `spoolman_url: disabled` as a valid configuration option. When set, all
+  Spoolman lookup paths short-circuit cleanly (`gate._spoolman is None` guards
+  are already present throughout the Python code). Tag metadata or UID-only
+  resolution continues to work; the gate map and Happy Hare filament data are
+  still updated via `_NFC_SPOOL_CHANGED` when `tag_parsing: True` and the tag
+  carries material/color fields.
+- Added `BRAND`, `MIN_TEMP`, `DIAMETER`, and `WEIGHT` parameters to the
+  `_NFC_SPOOL_CHANGED` macro dispatch for the no-Spoolman (metadata-only) path.
+  All four are always sent; empty string is used when the tag does not provide a
+  value. `klipper_interface.py` now reads `brand`/`vendor`, `min_temp`,
+  `diameter_mm`, and `weight_g`/`spool_weight_g` from the tag metadata dict.
+  The macro console message displays all fields; `MMU_GATE_MAP` continues to
+  receive only the fields Happy Hare supports (NAME, MATERIAL, COLOR, TEMP).
+- Added `disabled` as a third Spoolman option in the installer (lane and shared
+  paths). When selected the installer sets `spoolman_url: disabled`, defaults the
+  tag read mode prompt to `rich` (instead of `spoolman`), prints a note
+  explaining that rich mode is required to pass filament data to Happy Hare
+  without Spoolman, and skips the auto-create Spoolman spool question since there
+  is no Spoolman instance to create records in.
+
 ### Console Output and Logging
 
 - Replaced all abbreviated `HH` references with `Happy Hare` across log strings, console messages, docstrings, and user-visible status text in `nfc_manager.py`, `scan_jog.py`, `shared_preload.py`, and `hh_status.py`. `HH_SYNC` macro/command names and the `HH:MM:SS` datetime format in `log.py` are unchanged.

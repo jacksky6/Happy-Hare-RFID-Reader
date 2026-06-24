@@ -1304,17 +1304,20 @@ if [ "${READER_TYPE}" = "lane" ]; then
     done
 
     echo "3. Spoolman connection"
-    echo "   $(choice_style auto auto)   = read the URL from Moonraker's [spoolman] section (recommended)"
-    echo "   $(choice_style direct auto) = enter a fixed URL such as http://127.0.0.1:7912"
+    echo "   $(choice_style auto auto)     = read the URL from Moonraker's [spoolman] section (recommended)"
+    echo "   $(choice_style direct auto)   = enter a fixed URL such as http://127.0.0.1:7912"
+    echo "   $(choice_style disabled auto) = no Spoolman — resolve by tag metadata or UID only"
     prompt_choice SPOOLMAN_MODE \
         "   Select Spoolman connection mode" \
         "auto" \
-        "auto" "direct"
+        "auto" "direct" "disabled"
     SPOOLMAN_URL="auto"
     if [ "${SPOOLMAN_MODE}" = "direct" ]; then
         prompt_with_default SPOOLMAN_URL \
             "   Enter the direct Spoolman URL" \
             "http://127.0.0.1:7912"
+    elif [ "${SPOOLMAN_MODE}" = "disabled" ]; then
+        SPOOLMAN_URL="disabled"
     fi
 
     prompt_yes_no STARTUP_POLLING \
@@ -1339,11 +1342,16 @@ if [ "${READER_TYPE}" = "lane" ]; then
     echo ""
 
     echo "9. Tag read mode"
-    echo "   $(choice_style spoolman spoolman) = UID-only lookup in Spoolman's extra field (default)"
+    echo "   $(choice_style spoolman spoolman) = UID-only lookup in Spoolman's extra field"
     echo "   $(choice_style rich spoolman)     = read tag metadata, then resolve/create Spoolman records"
+    if [ "${SPOOLMAN_MODE}" = "disabled" ]; then
+        echo ""
+        echo "   NOTE: Spoolman is disabled. Set rich to read material/color/brand from the tag"
+        echo "   and send that data to Happy Hare. Without rich mode only a UID is recorded."
+    fi
     prompt_choice TAG_MODE \
         "   Select tag read mode" \
-        "spoolman" \
+        "$( [ "${SPOOLMAN_MODE}" = "disabled" ] && echo "rich" || echo "spoolman" )" \
         "spoolman" "rich"
 
     BAMBU_READS="no"
@@ -1357,9 +1365,11 @@ if [ "${READER_TYPE}" = "lane" ]; then
         prompt_yes_no BAMBU_READS \
             "10. Will you read factory-tagged Bambu spools with rich metadata?" \
             "no"
-        prompt_yes_no SPOOLMAN_AUTO_CREATE \
-            "11. Auto-create missing Spoolman spools from rich tag metadata?" \
-            "yes"
+        if [ "${SPOOLMAN_MODE}" != "disabled" ]; then
+            prompt_yes_no SPOOLMAN_AUTO_CREATE \
+                "11. Auto-create missing Spoolman spools from rich tag metadata?" \
+                "yes"
+        fi
     fi
 
     I2C_MCU=""   # not applicable for lane installs
@@ -1376,17 +1386,20 @@ else
     SCAN_ENABLED="no"   # always disabled for shared reader
 
     echo "2. Spoolman connection"
-    echo "   $(choice_style auto auto)   = read the URL from Moonraker's [spoolman] section (recommended)"
-    echo "   $(choice_style direct auto) = enter a fixed URL such as http://127.0.0.1:7912"
+    echo "   $(choice_style auto auto)     = read the URL from Moonraker's [spoolman] section (recommended)"
+    echo "   $(choice_style direct auto)   = enter a fixed URL such as http://127.0.0.1:7912"
+    echo "   $(choice_style disabled auto) = no Spoolman — resolve by tag metadata or UID only"
     prompt_choice SPOOLMAN_MODE \
         "   Select Spoolman connection mode" \
         "auto" \
-        "auto" "direct"
+        "auto" "direct" "disabled"
     SPOOLMAN_URL="auto"
     if [ "${SPOOLMAN_MODE}" = "direct" ]; then
         prompt_with_default SPOOLMAN_URL \
             "   Enter the direct Spoolman URL" \
             "http://127.0.0.1:7912"
+    elif [ "${SPOOLMAN_MODE}" = "disabled" ]; then
+        SPOOLMAN_URL="disabled"
     fi
 
     prompt_yes_no STARTUP_POLLING \
@@ -1403,11 +1416,16 @@ else
     prompt_i2c_bus_select I2C_BUS "${I2C_MCU}" "${PRINTER_CONFIG}" "${DEFAULT_I2C_BUS}"
 
     echo "6. Tag read mode"
-    echo "   $(choice_style spoolman spoolman) = UID-only lookup in Spoolman's extra field (default)"
+    echo "   $(choice_style spoolman spoolman) = UID-only lookup in Spoolman's extra field"
     echo "   $(choice_style rich spoolman)     = read tag metadata, then resolve/create Spoolman records"
+    if [ "${SPOOLMAN_MODE}" = "disabled" ]; then
+        echo ""
+        echo "   NOTE: Spoolman is disabled. Set rich to read material/color/brand from the tag"
+        echo "   and send that data to Happy Hare. Without rich mode only a UID is recorded."
+    fi
     prompt_choice TAG_MODE \
         "   Select tag read mode" \
-        "spoolman" \
+        "$( [ "${SPOOLMAN_MODE}" = "disabled" ] && echo "rich" || echo "spoolman" )" \
         "spoolman" "rich"
 
     BAMBU_READS="no"
@@ -1421,9 +1439,11 @@ else
         prompt_yes_no BAMBU_READS \
             "7. Will you read factory-tagged Bambu spools with rich metadata?" \
             "no"
-        prompt_yes_no SPOOLMAN_AUTO_CREATE \
-            "8. Auto-create missing Spoolman spools from rich tag metadata?" \
-            "yes"
+        if [ "${SPOOLMAN_MODE}" != "disabled" ]; then
+            prompt_yes_no SPOOLMAN_AUTO_CREATE \
+                "8. Auto-create missing Spoolman spools from rich tag metadata?" \
+                "yes"
+        fi
     fi
 
 fi

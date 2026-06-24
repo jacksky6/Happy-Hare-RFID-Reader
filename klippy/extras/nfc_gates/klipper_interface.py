@@ -71,19 +71,24 @@ class KlipperInterface:
                             gate, spool_id, uid_hex,
                             " [auto-created]" if auto_created else "")
                 else:
-                    name     = self._metadata_name(meta or {})
-                    material = self._macro_value((meta or {}).get('material', ''))
-                    color    = self._macro_value((meta or {}).get('color_hex', ''))
-                    temp     = (meta or {}).get('max_temp')
+                    m        = meta or {}
+                    name     = self._metadata_name(m)
+                    material = self._macro_value(m.get('material', ''))
+                    color    = self._macro_value(m.get('color_hex', ''))
+                    brand    = self._macro_value(m.get('brand') or m.get('vendor') or '')
+                    min_temp = m.get('min_temp')
+                    max_temp = m.get('max_temp')
+                    diameter = m.get('diameter_mm')
+                    weight   = m.get('weight_g') or m.get('spool_weight_g')
                     parts = ['_NFC_SPOOL_CHANGED', 'GATE={}'.format(gate), 'READER={}'.format(self._name)]
-                    if name:
-                        parts.append('NAME={}'.format(name))
-                    if material:
-                        parts.append('MATERIAL={}'.format(material))
-                    if color:
-                        parts.append('COLOR={}'.format(color))
-                    if temp is not None:
-                        parts.append('TEMP={}'.format(int(temp)))
+                    parts.append('NAME={}'.format(name))
+                    parts.append('MATERIAL={}'.format(material))
+                    parts.append('COLOR={}'.format(color))
+                    parts.append('BRAND={}'.format(brand))
+                    parts.append('MIN_TEMP={}'.format(int(min_temp) if min_temp is not None else ''))
+                    parts.append('TEMP={}'.format(int(max_temp) if max_temp is not None else ''))
+                    parts.append('DIAMETER={}'.format(diameter if diameter is not None else ''))
+                    parts.append('WEIGHT={}'.format(int(weight) if weight is not None else ''))
                     parts.append('UID={}'.format(uid_hex))
                     if scan_finish:
                         parts.append('SCAN_FINISH=1')
@@ -91,8 +96,10 @@ class KlipperInterface:
                     if self._debug >= 3:
                         logger.info(
                             "nfc_gates: gate %d → tag %s metadata-only "
-                            "(name=%s material=%s color=%s temp=%s)",
-                            gate, uid_hex, name, material, color, temp)
+                            "(name=%s material=%s color=%s brand=%s "
+                            "min_temp=%s max_temp=%s diameter=%s weight=%s)",
+                            gate, uid_hex, name, material, color, brand,
+                            min_temp, max_temp, diameter, weight)
             elif event_type == EVENT_UID_ONLY:
                 script = "_NFC_TAG_NO_SPOOL GATE={} READER={} UID={}{}".format(
                     gate, self._name, uid_hex, " SCAN_FINISH=1" if scan_finish else "")
