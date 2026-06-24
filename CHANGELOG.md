@@ -53,6 +53,30 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
   `scan_mm_total - scan_continuous_last_move_mm` and stored in
   `_scan_continuous_chunk_start_mm`; retries cannot step past it even if
   `scan_decode_retry_rounds` would allow more attempts.
+- Fixed a race in the first continuous chunk where `mmu.select_gate()` blocks
+  for the full gate-positioning time (~0.5 s) inside `run_direct_continuous_jog`.
+  Because this blocking consumed more time than the expected move duration,
+  `remaining_duration` was computed as zero and the code declared the first chunk
+  complete before it entered the motion queue. The second chunk was then submitted
+  immediately, creating a growing motion queue backlog that shifted all subsequent
+  position estimates by one full chunk (75 mm). Tags were detected one chunk
+  (75 mm × number of queued moves) later than their physical location. Fixed by
+  detecting when gate selection ran during the call and using `expected_duration`
+  rather than `max(0, expected_duration - command_elapsed)` for that call only.
+- Changed in-flight continuous probe rate. `scan_continuous_poll_interval` now
+  serves as the hardware probe timeout passed to `read_tag()` in addition to its
+  existing role as the timer reschedule interval. The reactor now reschedules
+  immediately after each in-flight probe (returning `now` rather than
+  `now + poll_interval`) so the hardware timeout is the only pacing. This raises
+  the probe count per chunk from ~3 to ~10–15 (depending on speed and step size),
+  reducing the effective per-probe coverage from ~28 mm to ~5 mm and making
+  near-edge misses much less likely.
+- Added missing commands to the global `NFC_HELP` output. The following commands
+  existed and worked but did not appear in the help listing:
+    `NFC GATE=<#> INIT=1` — re-run reader hardware initialisation
+    `NFC GATE=<#> APPLY=1` — send cached spool to Happy Hare immediately
+    `NFC GATE=<#> CLEAR_CACHE=1` — clear cached spool/UID without dispatching
+    `NFC GATE=<#> HH_SYNC=1 SPOOL_ID=<n>` — seed lane cache from Happy Hare gate map
 - Changed continuous in-flight scanning to perform a UID-only probe while the
   chunk is moving, then defer Spoolman lookup and rich tag parsing until the
   current chunk has finished.
