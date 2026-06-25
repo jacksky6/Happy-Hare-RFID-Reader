@@ -2715,17 +2715,10 @@ class NFCGate:
             meta = tag.meta if tag is not None else {}
             material = (meta or {}).get('material', '')
             color = (meta or {}).get('color_hex', '')
-            spool_identity = (
-                getattr(tag, 'spool_identity', None)
-                if tag is not None else None)
-            if not spool_identity:
-                spool_identity = (meta or {}).get('spool_identity') or 'None'
             return _status_html_words(
-                "  %s:  tag %s  metadata material=%s color=%s "
-                "spool_identity=%s   [%s]%s  [%s]"
+                "  %s:  tag %s  metadata material=%s color=%s   [%s]%s  [%s]"
                 % (label, self._state.current_uid,
-                   material, color, spool_identity, poll_state, sync_note,
-                   hh_label))
+                   material, color, poll_state, sync_note, hh_label))
         if self._state.current_spool is not None:
             return _status_html_words(
                 "  %s:  spool %-2d  UID %s   [%s]%s   [%s]"
