@@ -598,6 +598,7 @@ def start(gate, max_mm=None):
     gate._scan_continuous_move_inflight = False
     gate._scan_continuous_move_complete_time = 0.0
     gate._scan_continuous_last_move_mm = 0.0
+    gate._scan_continuous_probe_due = False
     gate._scan_continuous_tag_pending = False
     gate._scan_continuous_pending_uid = None
     gate._scan_continuous_pending_target_info = None
@@ -825,10 +826,11 @@ def continuous_step_event(gate, eventtime):
     now = gate.reactor.monotonic()
     move_inflight = getattr(gate, '_scan_continuous_move_inflight', False)
     complete_time = getattr(gate, '_scan_continuous_move_complete_time', 0.0)
+    probe_due = getattr(gate, '_scan_continuous_probe_due', False)
     move_complete = (not move_inflight) or now >= complete_time
     completed_continuous_move = move_inflight and move_complete
 
-    if move_inflight and move_complete:
+    if move_inflight and move_complete and not probe_due:
         gate._scan_continuous_move_inflight = False
         move_inflight = False
 
@@ -856,7 +858,10 @@ def continuous_step_event(gate, eventtime):
                     or full_poll_after_continuous_probe(gate))
     else:
         try:
-            if move_inflight and not move_complete:
+            if probe_due:
+                gate._scan_continuous_probe_due = False
+                tag_found = continuous_probe_uid(gate)
+            elif move_inflight and not move_complete:
                 tag_found = continuous_probe_uid(gate)
             elif getattr(gate, '_scan_continuous_pending_uid', None):
                 tag_found = full_poll_after_continuous_probe(gate)
@@ -874,7 +879,7 @@ def continuous_step_event(gate, eventtime):
             gate._console(msg)
             tag_found = False
 
-    if tag_found and move_inflight and not move_complete:
+    if tag_found and move_inflight and (probe_due or not move_complete):
         gate._scan_continuous_tag_pending = True
         logger.info(
             "[%s]: continuous scan found tag during in-flight move; "
@@ -882,6 +887,8 @@ def continuous_step_event(gate, eventtime):
             gate._name.capitalize(),
             max(0.0, complete_time - gate.reactor.monotonic()),
             getattr(gate, '_scan_continuous_last_move_mm', 0.0))
+        if move_complete:
+            return gate.reactor.monotonic()
         return min(
             complete_time,
             gate.reactor.monotonic() + gate._scan_continuous_poll_interval)
@@ -984,6 +991,7 @@ def continuous_step_event(gate, eventtime):
     _schedule_led_reassert(gate, effect_name)
     gate._scan_mm_total += move
     gate._scan_continuous_last_move_mm = move
+    gate._scan_continuous_probe_due = True
     gate._scan_continuous_move_inflight = True
     gate._scan_continuous_move_complete_time = (
         gate.reactor.monotonic() + remaining_duration)
@@ -997,7 +1005,7 @@ def continuous_step_event(gate, eventtime):
         gate._scan_mm_total, gate._scan_max_mm,
         gate._scan_next_chunk_time - gate.reactor.monotonic(),
         command_elapsed, remaining_duration)
-    return gate.reactor.monotonic() + gate._scan_continuous_poll_interval
+    return gate.reactor.monotonic()
 
 
 def current_tag_decode_incomplete(gate):
@@ -1252,6 +1260,7 @@ def disconnect_cleanup(gate):
     gate._scan_continuous_move_inflight = False
     gate._scan_continuous_move_complete_time = 0.0
     gate._scan_continuous_last_move_mm = 0.0
+    gate._scan_continuous_probe_due = False
     gate._scan_continuous_tag_pending = False
     gate._scan_continuous_pending_uid = None
     gate._scan_continuous_pending_target_info = None
