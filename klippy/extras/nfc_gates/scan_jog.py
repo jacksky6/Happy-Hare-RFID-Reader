@@ -1013,10 +1013,18 @@ def continuous_step_event(gate, eventtime):
     # for the first chunk.
     gate_selected_this_call = (
         not gate_was_selected and getattr(gate, '_scan_gate_selected', False))
-    if gate_selected_this_call:
+    if move_source == "Direct Move":
+        # For the direct Happy Hare path, command_elapsed is mostly Klipper/HH
+        # queueing work and is not reliable motion progress. Use Klipper's
+        # queued MMU move time instead so tag handling waits for real move end.
+        remaining_duration = max(0.0, gate._scan_continuous_queue_remaining)
+        timing_basis = "queue"
+    elif gate_selected_this_call:
         remaining_duration = expected_duration
+        timing_basis = "expected_after_gate_select"
     else:
         remaining_duration = max(0.0, expected_duration - command_elapsed)
+        timing_basis = "estimated"
     effect_name = getattr(gate, '_scan_searching_effect', LED_SEARCHING)
     _led_effect(gate, effect_name)
     _schedule_led_reassert(gate, effect_name)
@@ -1031,11 +1039,12 @@ def continuous_step_event(gate, eventtime):
         + gate._scan_continuous_poll_interval)
     logger.info(
         "[%s]: continuous %s queued %.1fmm  scan position %.1f / %.1fmm "
-        "(next read in %.2fs; call returned in %.2fs, remaining move %.2fs)",
+        "(next read in %.2fs; call returned in %.2fs, remaining move %.2fs, "
+        "basis=%s)",
         gate._name.capitalize(), move_source, move,
         gate._scan_mm_total, gate._scan_max_mm,
         gate._scan_next_chunk_time - gate.reactor.monotonic(),
-        command_elapsed, remaining_duration)
+        command_elapsed, remaining_duration, timing_basis)
     return gate.reactor.monotonic()
 
 
@@ -1810,20 +1819,9 @@ def _continuous_timing_snapshot(gate, mmu_toolhead):
     mcu = getattr(mmu_toolhead, 'mcu', None)
     if mcu is None:
         mcu = gate.printer.lookup_object('mcu', None)
-    last_move_time = None
-    estimated_print_time = None
-    get_last_move_time = getattr(mmu_toolhead, 'get_last_move_time', None)
-    if get_last_move_time is not None:
-        try:
-            last_move_time = float(get_last_move_time())
-        except Exception:
-            last_move_time = None
-    if mcu is not None and hasattr(mcu, 'estimated_print_time'):
-        try:
-            estimated_print_time = float(
-                mcu.estimated_print_time(gate.reactor.monotonic()))
-        except Exception:
-            estimated_print_time = None
+    last_move_time = float(mmu_toolhead.get_last_move_time())
+    estimated_print_time = float(
+        mcu.estimated_print_time(gate.reactor.monotonic()))
     return last_move_time, estimated_print_time
 
 
@@ -1863,6 +1861,7 @@ def run_direct_continuous_jog(gate, mm):
     if mmu_toolhead is None:
         return False
     try:
+        gate._scan_continuous_queue_remaining = None
         timing_before = (None, None)
         if gate._debug >= 4:
             timing_before = _continuous_timing_snapshot(gate, mmu_toolhead)
@@ -1897,17 +1896,15 @@ def run_direct_continuous_jog(gate, mm):
         printer_toolhead = getattr(mmu, 'toolhead', None)
         if printer_toolhead is not None:
             printer_toolhead.flush_step_generation()
+        last_after, est_after = _continuous_timing_snapshot(
+            gate, mmu_toolhead)
+        queue_remaining = last_after - est_after
+        gate._scan_continuous_queue_remaining = queue_remaining
         if gate._debug >= 4:
             last_before, est_before = timing_before
-            last_after, est_after = _continuous_timing_snapshot(
-                gate, mmu_toolhead)
             last_delta = (
                 last_after - last_before
                 if last_after is not None and last_before is not None
-                else None)
-            queue_remaining = (
-                last_after - est_after
-                if last_after is not None and est_after is not None
                 else None)
             logger.debug(
                 "[%s]: continuous Direct Move timing detail "
