@@ -1849,43 +1849,6 @@ def continuous_lookahead_flush(mmu_toolhead):
     return flush
 
 
-def log_continuous_direct_stepper_state(gate, mmu, mmu_toolhead):
-    """Log the active Happy Hare Type-B gear stepper before a direct move.
-
-    This is diagnostic only: it does not enable or disable any motor.  Type-B
-    Happy Hare builds can electrically disable lane steppers between operations,
-    and direct NFC moves bypass HH's normal MMU_TEST_MOVE logging.
-    """
-    if getattr(gate, '_debug', 0) < 4:
-        return
-    stepper_names = []
-    enable_states = []
-    try:
-        steppers = list(getattr(mmu_toolhead, 'selected_gear_steppers', []) or [])
-        stepper_names = [s.get_name() for s in steppers]
-        stepper_enable = gate.printer.lookup_object('stepper_enable', None)
-        if stepper_enable is not None:
-            for name in stepper_names:
-                try:
-                    enable = stepper_enable.lookup_enable(name)
-                    enabled = enable.is_motor_enabled()
-                except Exception:
-                    enabled = 'unknown'
-                enable_states.append("%s=%s" % (name, enabled))
-    except Exception as e:
-        logger.debug(
-            "[%s]: continuous Direct Move stepper state unavailable: %s",
-            gate._name.capitalize(), e)
-        return
-    logger.debug(
-        "[%s]: continuous Direct Move gate=%s hh_gate_selected=%s "
-        "selected_gear_steppers=%s enable_state=%s sync_mode=%s",
-        gate._name.capitalize(), gate._gate, getattr(mmu, 'gate_selected', None),
-        ','.join(stepper_names) if stepper_names else '(none)',
-        ','.join(enable_states) if enable_states else '(unknown)',
-        getattr(mmu_toolhead, 'sync_mode', None))
-
-
 def continuous_queue_remaining(gate):
     mmu = gate.printer.lookup_object('mmu', None)
     mmu_toolhead = getattr(mmu, 'mmu_toolhead', None) if mmu is not None else None
@@ -2002,7 +1965,6 @@ def run_direct_continuous_jog(gate, mm):
         while len(pos) < 4:
             pos.append(0.0)
         pos[1] += float(mm)
-        log_continuous_direct_stepper_state(gate, mmu, mmu_toolhead)
         with mmu.wrap_accel(accel):
             mmu_toolhead.move(pos, speed)
         # Do not call flush_step_generation() here.  On current Klipper,
