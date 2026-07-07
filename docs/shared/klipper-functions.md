@@ -187,9 +187,12 @@ Runs a no-motion setup check. It does not scan tags or move filament.
 NFC_DOCTOR
 ```
 
-It reports enabled/disabled lane readers, shared-reader state, Spoolman
-availability, the shared-reader preload hook, and static config warnings such as
-`bambu_reads: True` without `tag_parsing: True`.
+It reports enabled/disabled lane readers, shared-reader state, detected Happy
+Hare version, Spoolman availability, the shared-reader preload hook, and static
+config warnings such as `bambu_reads: True` without `tag_parsing: True`.
+Doctor also prints the scan-jog action rule for the detected Happy Hare version:
+v4 accepts `action=idle` or `action=checking`; v3/pre-v4 and unknown versions
+accept only `action=idle`.
 
 ---
 
@@ -369,10 +372,14 @@ variable_user_post_preload_extension: '_NFC_SCAN_JOG_PRELOAD'
 Happy Hare appends `GATE=<n>` automatically after a successful preload. `_NFC_SCAN_JOG_PRELOAD` starts scan-jog with:
 
 ```gcode
-NFC GATE=<n> JOG_SCAN=1
+NFC GATE=<n> JOG_SCAN=1 SOURCE=AUTO
 ```
 
 NFC starts the configured scan-jog LED effect from the Python scan timer before motion begins.
+
+`SOURCE=AUTO` identifies this as Happy Hare's own hook call. Happy Hare v4 runs
+the hook while its action is often still `checking`, before it unwinds back to
+`idle`, so NFC runs hook calls through the version-aware scan-safe check.
 
 Recommended NFC config when using the hook — disables gate-status polling so HH is the sole trigger:
 
@@ -382,14 +389,22 @@ startup_polling: 0
 scan_enabled:    False
 ```
 
-**Preconditions** (same as the automatic path — the command checks all of these and reports a plain-language error if any fail):
+**Preconditions** (the command checks all of these and reports a plain-language error if any fail):
 
 | Check | What it guards |
 |---|---|
 | Reader not in failed state | Reader must have initialised successfully |
 | No active print | Scan cannot move filament during a print |
-| Happy Hare `action == idle` | HH must not be loading, unloading, or homing |
+| Happy Hare scan-safe check | See below |
 | No other gate currently scanning | Only one gate may hold the MMU at a time |
+
+The scan-safe check differs by caller:
+
+- **`SOURCE=AUTO`** (only `_NFC_SCAN_JOG_PRELOAD`, Happy Hare's own hook, sets this): Happy Hare v4 accepts `action=idle` or `action=checking`. Happy Hare v3/pre-v4 and unknown versions accept only `action=idle`.
+- **Any other caller** (manual console command, macro, button; no `SOURCE=AUTO`): requires strict `action == idle`. NFC cannot verify why the command was sent, so an unlabeled call gets no benefit of the doubt.
+
+Do not add `SOURCE=AUTO` to a manually typed `JOG_SCAN=1`; it exists only to
+identify the trusted hook call, not to bypass the busy check generally.
 
 **When to use:**
 - Filament was loaded manually and the automatic trigger didn't fire (e.g. `scan_enabled: False`, or the 0→1 edge was missed)

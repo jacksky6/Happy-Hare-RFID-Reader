@@ -5,7 +5,39 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ---
 
-## [Unreleased] - Continuous Scan - WoodWorker
+## [1.0.0] - 07/06/2026 - WoodWorker
+
+### Happy Hare V4 Compatibility
+
+Two independent fixes, for two different scan-jog trigger paths, both landed on
+the same underlying symptom: scan-jog could fail to start on Happy Hare v4 while
+Happy Hare reports `action=checking`.
+
+- **Automatic gate-status polling trigger** (`scan_enabled: True`, no hook):
+  added Happy Hare version detection
+  (`_happy_hare_version`/`_refresh_happy_hare_version`/
+  `_happy_hare_major_version`, with a lazy refresh fallback if the MMU object
+  was not available yet at init) and `_happy_hare_allows_scan_action()`. The
+  poll timer now treats `action=checking` as scan-safe when Happy Hare reports
+  major version `>= 4`; older or unknown versions still require strict
+  `action=idle`.
+- **Hook-triggered / manual `JOG_SCAN=1`** (`_NFC_SCAN_JOG_PRELOAD`, Happy
+  Hare's `user_post_preload_extension` hook): Happy Hare v4 invokes this hook
+  while still running its own load sequence, before it unwinds back to `idle`,
+  so requiring strict idle there could never succeed. The macro now sends
+  `NFC GATE=<n> JOG_SCAN=1 SOURCE=AUTO`; NFC only relaxes the busy check for
+  calls carrying `SOURCE=AUTO` when the detected Happy Hare major version is
+  `>= 4` and the action is `checking`.
+  Manual/console `JOG_SCAN=1` with no `SOURCE=AUTO` is unaffected and still
+  requires strict `action == idle` on any Happy Hare version.
+- Fixed Happy Hare version detection to read
+  `mmu.mmu_machine.happy_hare_version`, matching the current Happy Hare object
+  model, while keeping the older `mmu.version` fallback.
+- Added Happy Hare version reporting to `NFC_DOCTOR`, including whether v4
+  `checking` scan-jog compatibility is enabled: v4 accepts `action=idle` or
+  `action=checking`; v3/pre-v4 and unknown versions accept only `action=idle`.
+- Documented both mechanisms in README, `docs/shared/klipper-functions.md`, and
+  `docs/shared/install-uninstall.md`.
 
 ### Spoolman-Disabled Support
 

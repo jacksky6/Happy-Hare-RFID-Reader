@@ -57,6 +57,18 @@ The shared reader can stage only a real Spoolman spool ID. UID lookup, embedded 
 - NFC tags on spools: NTAG213/215/216, MIFARE Classic, or supported rich-tag formats
 - Lane MCU firmware rebuilt from the same Klipper checkout as the host
 
+## Happy Hare V4 Compatibility
+
+Happy Hare v4 can run the post-preload hook while the MMU reports
+`action=checking`. For automatic gate-status polling, NFC treats `checking` as
+scan-safe only when the detected Happy Hare major version is 4 or newer. For
+the post-preload hook, `_NFC_SCAN_JOG_PRELOAD` sends
+`NFC GATE=<n> JOG_SCAN=1 SOURCE=AUTO`; that trusted hook path uses the same
+version-aware scan-safe check: Happy Hare v4 accepts `action=idle` or
+`action=checking`; Happy Hare v3/pre-v4 and unknown versions accept only
+`action=idle`. Manual or console `JOG_SCAN=1` commands without `SOURCE=AUTO`
+stay conservative and always require `action=idle`.
+
 Supported readers:
 
 | Reader | `reader_type` | Bus / address | Notes |
