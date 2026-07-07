@@ -171,9 +171,9 @@ scan_enabled: False
 
 `SOURCE=AUTO` identifies this as Happy Hare's own hook call. Happy Hare v4 can
 run the hook while its action is still `checking`, before it unwinds back to
-`idle`, so NFC checks hook calls against a narrower busy-action list. Manual or
-console `JOG_SCAN=1` commands without `SOURCE=AUTO` still require strict
-`action=idle`.
+`idle`, so NFC runs hook calls through the version-aware scan-safe check.
+Manual or console `JOG_SCAN=1` commands without `SOURCE=AUTO` still require
+strict `action=idle`.
 
 Without this hook wired, scan-jog falls back to triggering on gate status change (`scan_enabled: True`), which is less reliable than the preload hook.
 

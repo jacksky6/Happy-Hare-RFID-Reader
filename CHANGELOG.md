@@ -26,12 +26,13 @@ Happy Hare reports `action=checking`.
   while still running its own load sequence, before it unwinds back to `idle`,
   so requiring strict idle there could never succeed. The macro now sends
   `NFC GATE=<n> JOG_SCAN=1 SOURCE=AUTO`; NFC only relaxes the busy check for
-  calls carrying `SOURCE=AUTO`, checking those against a narrower list of
-  actions that genuinely conflict with scan-jog's own gear motion (`loading`,
-  `loading_extruder`, `unloading_extruder`, `forming_tip`, `homing`,
-  `cutting_tip`, `cutting_filament`, `purging`) instead of requiring idle.
+  calls carrying `SOURCE=AUTO` when the detected Happy Hare major version is
+  `>= 4` and the action is `checking`.
   Manual/console `JOG_SCAN=1` with no `SOURCE=AUTO` is unaffected and still
   requires strict `action == idle` on any Happy Hare version.
+- Fixed Happy Hare version detection to read
+  `mmu.mmu_machine.happy_hare_version`, matching the current Happy Hare object
+  model, while keeping the older `mmu.version` fallback.
 - Documented both mechanisms in README, `docs/shared/klipper-functions.md`, and
   `docs/shared/install-uninstall.md`.
 

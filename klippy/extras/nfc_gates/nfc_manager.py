@@ -1153,8 +1153,11 @@ class NFCGate:
     def _refresh_happy_hare_version(self):
         try:
             mmu = self.printer.lookup_object('mmu', None)
-            self._HAPPY_HARE_VERSION = (
-                getattr(mmu, 'version', None) if mmu is not None else None)
+            version = getattr(mmu, 'version', None) if mmu is not None else None
+            if version is None and mmu is not None:
+                mmu_machine = getattr(mmu, 'mmu_machine', None)
+                version = getattr(mmu_machine, 'happy_hare_version', None)
+            self._HAPPY_HARE_VERSION = version
         except Exception:
             self._HAPPY_HARE_VERSION = None
         return self._HAPPY_HARE_VERSION
@@ -1168,7 +1171,7 @@ class NFCGate:
         version = self._happy_hare_version()
         if version is None:
             return None
-        m = re.match(r'\s*(\d+)', str(version))
+        m = re.match(r'\s*v?(\d+)', str(version), re.IGNORECASE)
         if not m:
             return None
         try:

@@ -376,8 +376,7 @@ NFC starts the configured scan-jog LED effect from the Python scan timer before 
 
 `SOURCE=AUTO` identifies this as Happy Hare's own hook call. Happy Hare v4 runs
 the hook while its action is often still `checking`, before it unwinds back to
-`idle`, so NFC checks hook calls against a narrower list of actions that
-genuinely conflict with scan-jog motion instead of requiring strict idle.
+`idle`, so NFC runs hook calls through the version-aware scan-safe check.
 
 Recommended NFC config when using the hook — disables gate-status polling so HH is the sole trigger:
 
@@ -393,12 +392,12 @@ scan_enabled:    False
 |---|---|
 | Reader not in failed state | Reader must have initialised successfully |
 | No active print | Scan cannot move filament during a print |
-| Happy Hare busy-action check | See below |
+| Happy Hare scan-safe check | See below |
 | No other gate currently scanning | Only one gate may hold the MMU at a time |
 
-The busy-action check differs by caller:
+The scan-safe check differs by caller:
 
-- **`SOURCE=AUTO`** (only `_NFC_SCAN_JOG_PRELOAD`, Happy Hare's own hook, sets this): Happy Hare can call the hook while it still reports a non-idle action, typically `checking`. NFC rejects only actions that genuinely conflict with scan-jog's own gear motion: `loading`, `loading_extruder`, `unloading_extruder`, `forming_tip`, `homing`, `cutting_tip`, `cutting_filament`, `purging`.
+- **`SOURCE=AUTO`** (only `_NFC_SCAN_JOG_PRELOAD`, Happy Hare's own hook, sets this): Happy Hare v4 can call the hook while it still reports `action=checking`. NFC allows `checking` only when the detected Happy Hare major version is 4 or newer; older or unknown versions still require `idle`.
 - **Any other caller** (manual console command, macro, button; no `SOURCE=AUTO`): requires strict `action == idle`. NFC cannot verify why the command was sent, so an unlabeled call gets no benefit of the doubt.
 
 Do not add `SOURCE=AUTO` to a manually typed `JOG_SCAN=1`; it exists only to

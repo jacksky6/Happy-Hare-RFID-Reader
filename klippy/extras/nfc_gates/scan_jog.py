@@ -111,12 +111,11 @@ def manual_jog_scan(gate, gcmd):
     """Start scan-and-jog on demand, matching the automatic trigger path.
 
     SOURCE=AUTO identifies the trusted call from Happy Hare's
-    post_preload_extension hook (_NFC_SCAN_JOG_PRELOAD). That call always
-    lands while Happy Hare itself reports a non-idle action, so it is checked
-    against a narrower "genuinely conflicts with gear motion" blocklist
-    instead of requiring strict idle. Any other caller -- manual console
-    command, button, macro -- gets no such context guarantee and still
-    requires strict idle.
+    post_preload_extension hook (_NFC_SCAN_JOG_PRELOAD). That call can land
+    while Happy Hare v4 reports action=checking, so it uses the Happy Hare
+    version-aware scan-safe check. Any other caller -- manual console command,
+    button, macro -- gets no such context guarantee and still requires strict
+    idle.
     """
     if gate._failed:
         msg = ("[ERROR] NFC[%s]: reader failed - "
@@ -134,7 +133,7 @@ def manual_jog_scan(gate, gcmd):
     trusted_auto = str(gcmd.get('SOURCE', '') or '').strip().upper() == 'AUTO'
     hh = gate._read_hh_status()
     if hh.present:
-        busy = (hh.action in hh_status.AUTO_JOG_SCAN_BLOCKING_ACTIONS
+        busy = (not gate._happy_hare_allows_scan_action(hh.action)
                 if trusted_auto else not hh.idle)
         if busy:
             msg = ("[WARN] NFC[%s]: Happy Hare is busy (action=%s) — "
