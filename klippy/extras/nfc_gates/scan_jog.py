@@ -881,6 +881,16 @@ def resume_poll_after_rewind(gate):
         gate.reactor.monotonic() + delay)
 
 
+def _hh_drive_position(mmu):
+    """Best-effort read of Happy Hare's raw drive position for diagnostics."""
+    if mmu is None or not hasattr(mmu, 'drive'):
+        return None
+    try:
+        return mmu.drive().get_filament_position()
+    except Exception:
+        return None
+
+
 def start(gate, max_mm=None):
     if max_mm is not None:
         gate._scan_max_mm = float(max_mm)
@@ -891,7 +901,9 @@ def start(gate, max_mm=None):
     # tracked gear position (shown as the "UNLOADED N.Nmm" console readout)
     # keeps accumulating every jog from every past scan-jog run forever.
     mmu = gate.printer.lookup_object('mmu', None)
-    if mmu is not None and hasattr(mmu, 'initialize_filament_position'):
+    has_reset_fn = mmu is not None and hasattr(mmu, 'initialize_filament_position')
+    before_pos = _hh_drive_position(mmu)
+    if has_reset_fn:
         try:
             mmu.initialize_filament_position()
         except Exception:
@@ -899,6 +911,13 @@ def start(gate, max_mm=None):
                 "[%s]: gate %d scan mode — failed to reset Happy Hare "
                 "filament position before scan-jog",
                 gate._name, gate._gate)
+    after_pos = _hh_drive_position(mmu)
+    diag = ("[WARN] NFC[%s]: HH filament-position reset check — "
+            "mmu_found=%s has_reset_fn=%s before=%s after=%s"
+            % (gate._name.capitalize(), mmu is not None, has_reset_fn,
+               before_pos, after_pos))
+    logger.info(diag)
+    gate._console(diag)
     gate.__class__._active_scan_gate = gate._gate
     gate._scan_mode = True
     gate._scan_mm_total = 0.0
@@ -2005,7 +2024,6 @@ def finish(gate):
     logger.info(msg)
     gate._console(msg)
     restore_left_neighbor(gate)
-    gate.__class__._active_scan_gate = None
     # Filament is back at the gate — dispatch the event that was suppressed during the jog.
     if gate._scan_found_event is not None:
         event = gate._scan_found_event
@@ -2054,6 +2072,12 @@ def finish(gate):
     gate._scan_left_neighbor_attempts = 0
     gate._resume_poll_after_rewind()
     _led_release(gate)
+    # Only release the "one gate scans at a time" guard once every last bit of
+    # cleanup above (HH dispatch, poll resume, LED release) is actually done.
+    # Clearing it earlier let a second `jog_scan` command be accepted while
+    # this session's own tail was still running, racing both sessions'
+    # Happy Hare interactions against each other.
+    gate.__class__._active_scan_gate = None
 
 
 def rewind_and_exit(gate):
@@ -2070,7 +2094,6 @@ def rewind_and_exit(gate):
     gate._console(msg)
     restore_left_neighbor(gate)
     clear_unresolved_scan(gate)
-    gate.__class__._active_scan_gate = None
     previous_uid = getattr(gate, '_scan_previous_uid', None)
     previous_spool = getattr(gate, '_scan_previous_spool', None)
     if previous_spool is not None:
@@ -2098,6 +2121,8 @@ def rewind_and_exit(gate):
     gate._scan_left_neighbor_attempts = 0
     gate._resume_poll_after_rewind()
     _led_release(gate)
+    # See finish(): release the scan guard only after all cleanup is done.
+    gate.__class__._active_scan_gate = None
 
 
 def console(gate, msg):
