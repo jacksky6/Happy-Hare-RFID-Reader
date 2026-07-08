@@ -2,6 +2,8 @@
 #
 # Scan-and-jog mode helpers for NFCGate.
 
+import contextlib
+
 from . import hh_status
 from .LED_effect_mgr import (
     EVENT_REWIND, EVENT_SCAN_START, EVENT_TAG_READ, LEDEffectManager)
@@ -850,8 +852,8 @@ def restore_active_gate(gate):
 def run_hh_script(gate, script, suppress_visual=True):
     gcode = gate.printer.lookup_object('gcode')
     mmu = gate.printer.lookup_object('mmu', None)
-    if suppress_visual and mmu is not None and hasattr(mmu, 'wrap_suppress_visual_log'):
-        with mmu.wrap_suppress_visual_log():
+    if suppress_visual and mmu is not None:
+        with suppress_hh_visual_log(mmu), _suppress_hh_log_level(mmu):
             gcode.run_script(script)
     else:
         gcode.run_script(script)
@@ -871,6 +873,28 @@ def suppress_hh_visual_log(mmu):
     return _NoopContext()
 
 
+@contextlib.contextmanager
+def _suppress_hh_log_level(mmu):
+    """Silence HH's own log_info() console echoes for one internal call.
+
+    cmd_MMU_SELECT (HH v3 mmu.py) unconditionally prints the full gate-table
+    + visual-state banner via self.log_info(...) after selecting a gate --
+    it ignores QUIET=1 and isn't covered by wrap_suppress_visual_log() (that
+    only gates the separate log_visual flag used by _display_visual_state()).
+    log_info() is gated solely by mmu.log_level, so drop that to 0 for the
+    duration of scan-jog's own MMU_SELECT/_MMU_STEP_*/etc. calls.
+    """
+    if mmu is None or not hasattr(mmu, 'log_level'):
+        yield
+        return
+    previous = mmu.log_level
+    mmu.log_level = 0
+    try:
+        yield
+    finally:
+        mmu.log_level = previous
+
+
 def resume_poll_after_rewind(gate):
     """Restart regular polling after the queued rewind move can finish."""
     delay = gate._poll_interval
@@ -881,24 +905,8 @@ def resume_poll_after_rewind(gate):
         gate.reactor.monotonic() + delay)
 
 
-def _hh_drive_position(mmu):
-    """Best-effort read of Happy Hare's raw gear position for diagnostics.
-
-    HH v3 (mmu.py monolith) exposes this as mmu_toolhead.get_position()[1]
-    (see _get_filament_position()); scan_jog.mmu_gear_position() already
-    reads the same value for jog-delta measurement.
-    """
-    mmu_toolhead = getattr(mmu, 'mmu_toolhead', None) if mmu is not None else None
-    if mmu_toolhead is None:
-        return None
-    try:
-        return float(mmu_toolhead.get_position()[1])
-    except Exception:
-        return None
-
-
 def _hh_reset_filament_position(mmu):
-    """Reset Happy Hare's raw gear position counter and report which API fired.
+    """Reset Happy Hare's raw gear position counter.
 
     HH v3 names this _initialize_filament_position (single-underscore
     "private" convention used throughout the v3 mmu.py monolith); HH v4's
@@ -909,8 +917,8 @@ def _hh_reset_filament_position(mmu):
         fn = getattr(mmu, name, None)
         if fn is not None:
             fn()
-            return name
-    return None
+            return True
+    return False
 
 
 def start(gate, max_mm=None):
@@ -923,23 +931,14 @@ def start(gate, max_mm=None):
     # "UNLOADED N.Nmm" console readout) keeps accumulating every jog from
     # every past scan-jog run forever.
     mmu = gate.printer.lookup_object('mmu', None)
-    before_pos = _hh_drive_position(mmu)
-    reset_fn_used = None
     if mmu is not None:
         try:
-            reset_fn_used = _hh_reset_filament_position(mmu)
+            _hh_reset_filament_position(mmu)
         except Exception:
             logger.exception(
                 "[%s]: gate %d scan mode — failed to reset Happy Hare "
                 "filament position before scan-jog",
                 gate._name, gate._gate)
-    after_pos = _hh_drive_position(mmu)
-    diag = ("[WARN] NFC[%s]: HH filament-position reset check — "
-            "mmu_found=%s reset_fn=%s before=%s after=%s"
-            % (gate._name.capitalize(), mmu is not None, reset_fn_used,
-               before_pos, after_pos))
-    logger.info(diag)
-    gate._console(diag)
     gate.__class__._active_scan_gate = gate._gate
     gate._scan_mode = True
     gate._scan_mm_total = 0.0
