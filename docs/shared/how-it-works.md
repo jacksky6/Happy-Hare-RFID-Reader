@@ -166,7 +166,7 @@ tag to home against on the way back.
 
 ### Class-level scan lock
 
-All lane instances share one class variable, `NFCGate._active_scan_gate`. Because Klipper's reactor is single-threaded, reads and writes are atomic with respect to timer callbacks — no mutex needed. Only one gate may scan at a time; a second gate that detects a 0→1 edge while the lock is held re-arms its pending flag and retries on the next poll tick. The lock is held until a scan's rewind, Happy Hare dispatch, poll resume, and LED release have all completed — releasing it any earlier let a second `JOG_SCAN=1` start while the previous session's own Happy Hare interaction was still in flight.
+All lane instances share one class variable, `NFCGate._active_scan_gate`. Because Klipper's reactor is single-threaded, reads and writes are atomic with respect to timer callbacks — no mutex needed. Only one gate may scan at a time; a second gate that detects a 0→1 edge while the lock is held re-arms its pending flag and retries on the next poll tick. The lock is held until a scan's rewind, Happy Hare dispatch, poll resume, and LED release have all completed — releasing it any earlier let a second `JOG_SCAN=1` start while the previous session's own Happy Hare interaction was still in flight.   If you try to start a jog_scan while another is in flight, and that attempt is blocked/queued for next tick, you may see a spool start jogging wihtout an interactive initiation.   This behavior is expected, as it's the queued scan executing once the block is lifted.   The behavinor allows the user to add spools to the mmu without having to wait for a previous jog_scan to complete.  as each laned completes, the next lane will initiate the jog_scan.
 
 ---
 
