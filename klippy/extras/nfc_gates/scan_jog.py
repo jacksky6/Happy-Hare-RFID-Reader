@@ -764,7 +764,12 @@ def sync_spoolman_before_scan(gate):
                 "[%s]: gate %d scan mode — syncing Happy Hare Spoolman "
                 "state before scan-jog",
                 gate._name, gate._gate)
-        gcode.run_script("MMU_SPOOLMAN SYNC=1 QUIET=1")
+        # Every other Happy Hare call in this module goes through
+        # run_hh_script() so mmu.wrap_suppress_visual_log() keeps HH's
+        # gate-map/filament-position banners off the console during scan-jog.
+        # This call used gcode.run_script() directly, so it was the one path
+        # that could still trigger an unsuppressed HH status print.
+        run_hh_script(gate, "MMU_SPOOLMAN SYNC=1 QUIET=1")
     except Exception as e:
         logger.warning(
             "[%s]: gate %d scan mode — MMU_SPOOLMAN SYNC failed: %s",
@@ -782,7 +787,7 @@ def clear_hh_gate_cache(gate):
                 "[%s]: gate %d scan mode — clearing Happy Hare gate cache "
                 "before scan-jog",
                 gate._name, gate._gate)
-        gcode.run_script("_NFC_GATE_CLEAR_CACHE GATE=%d" % gate._gate)
+        run_hh_script(gate, "_NFC_GATE_CLEAR_CACHE GATE=%d" % gate._gate)
     except Exception as e:
         logger.warning(
             "[%s]: gate %d scan mode — _NFC_GATE_CLEAR_CACHE failed: %s",
@@ -879,6 +884,21 @@ def resume_poll_after_rewind(gate):
 def start(gate, max_mm=None):
     if max_mm is not None:
         gate._scan_max_mm = float(max_mm)
+    # Happy Hare's own MMU_LOAD/MMU_EJECT sequences zero this counter
+    # (mmu.initialize_filament_position()) before they issue any gear moves.
+    # Scan-jog drives the gear directly through the low-level _MMU_STEP_*
+    # primitives instead of those sequences, so without this reset HH's
+    # tracked gear position (shown as the "UNLOADED N.Nmm" console readout)
+    # keeps accumulating every jog from every past scan-jog run forever.
+    mmu = gate.printer.lookup_object('mmu', None)
+    if mmu is not None and hasattr(mmu, 'initialize_filament_position'):
+        try:
+            mmu.initialize_filament_position()
+        except Exception:
+            logger.exception(
+                "[%s]: gate %d scan mode — failed to reset Happy Hare "
+                "filament position before scan-jog",
+                gate._name, gate._gate)
     gate.__class__._active_scan_gate = gate._gate
     gate._scan_mode = True
     gate._scan_mm_total = 0.0
