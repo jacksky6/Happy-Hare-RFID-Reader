@@ -219,11 +219,31 @@ The bundled rich-tag parser currently recognizes these manufacturer spool tag fo
 | ELEGOO | EPC-256 binary tags on NTAG213 |
 | Anycubic | ACE binary tags on NTAG213/215 |
 | TigerTag | TigerTag / TigerTag+ binary tags on NTAG213/215/216; local core metadata only, no cloud lookup or signature verification. Also extracts the Twin Tag ID (same-spool pairing key for TigerTag's two-tags-per-spool design) as `spool_identity`, used for left-neighbor interference detection the same way Bambu's `tray_uid` is. |
-| Creality | CFS / K1 / K2 MIFARE Classic tags; requires `bambu_reads: True` and `pycryptodome`. Sector 1 uses a UID-derived Key B plus an AES-128-ECB-encrypted payload (both **confirmed**, community-sourced) — not the plain default key. |
+| Creality | CFS / K1 / K2 MIFARE Classic tags; requires `bambu_reads: True` and `pycryptodome`. Sector 1 uses a UID-derived Key B plus an AES-128-ECB-encrypted payload (both **confirmed on real Creality spool tags**, community-sourced) — not the plain default key. The decoded payload also creates a Bambu-style `spool_identity` for same-spool / left-neighbor interference handling. |
 | QIDI | QIDI Box MIFARE Classic tags; requires `bambu_reads: True` (gates the default-key fallback attempt — no `pycryptodome` needed). Authenticates with the plain MIFARE Classic factory default key, `FF FF FF FF FF FF` — **confirmed**, sourced from the community `BoxRFID-Touch` project. If reads fail on real QIDI tags, see the [QIDI Box RFID reference](qidi-rfid-reference.md) for the official sector/block layout and QIDI-specific Key A note. |
 | SimplyPrint / QIDI standard URL | NDEF URI/Text tags with supported filament query fields |
 
 It also recognizes open rich-tag formats: OpenTag3D, OpenSpool, OpenPrintTag, and generic NDEF JSON filament records.
+
+### Same-Spool `spool_identity`
+
+Some manufacturer tags expose a stable spool identity that is separate from the
+chip UID. NFC uses this only for scan-jog left-neighbor interference detection:
+if gate `N` reads a tag whose `spool_identity` matches gate `N - 1`, NFC treats
+the read as the left spool bleeding into the current reader field and keeps
+scanning the current lane.
+
+| Format | `spool_identity` | Source fields | Notes |
+|---|---|---|---|
+| Bambu Lab | `bambu_<tray_uid>` | Bambu `tray_uid` | Models the same spool even when a spool has more than one readable chip/side. |
+| TigerTag / TigerTag+ | `tigertag_<twin_tag_id>` | Twin Tag ID | The same Twin Tag ID is written to both chips on a two-tag spool. |
+| Creality CFS/K1/K2 | `creality_<numeric_hash>` | `vendor_id`, `date_code`, `batch`, `filament_id`, `color`, `length`, `serial` | The hardware UID is intentionally not part of the identity, so two tags carrying the same Creality spool payload produce the same identity. |
+| QIDI Box | none currently | material, color, manufacturer code only | QIDI parsing resolves filament metadata, but the known three-byte payload is not enough to prove same physical spool. |
+
+`spool_identity` is not a replacement for Spoolman's UID registration. Spoolman
+still resolves the actual spool ID from the tag UID first. The identity is a
+secondary same-spool signal used before metadata-based auto-create and during
+scan-jog interference handling.
 
 > [!NOTE]
 > **Creality key material.** Neither key is a secret held back from this

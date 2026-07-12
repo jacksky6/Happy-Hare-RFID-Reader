@@ -2117,8 +2117,8 @@ def queue_decode_retry_move(gate, now, uid, reason, max_attempts, retry_mm):
     attempt = gate._scan_decode_retry_attempts
     msg = ("[WARN] NFC[%s]: tag decode incomplete; retry %d/%d after %.1fmm jog"
            % (gate._name.capitalize(), attempt, max_attempts, move))
-    logger.info("%s (uid=%s reason=%s)", msg, uid, reason)
-    gate._console(msg)
+    if gate._debug >= 3:
+        logger.info("%s (uid=%s reason=%s)", msg, uid, reason)
     reset_uid_only_read(gate, uid)
     gate._run_jog(move)
     effect_name = getattr(gate, '_scan_searching_effect', LED_SEARCHING)
@@ -2181,8 +2181,8 @@ def retry_incomplete_decode(gate, now):
             msg = ("[WARN] NFC[%s]: tag decode incomplete; backing up %.1fmm "
                    "to continuous hit-window center before retry"
                    % (gate._name.capitalize(), backup_mm))
-            logger.info("%s (uid=%s reason=%s)", msg, uid, reason)
-            gate._console(msg)
+            if gate._debug >= 3:
+                logger.info("%s (uid=%s reason=%s)", msg, uid, reason)
             reset_uid_only_read(gate, uid)
             gate._run_jog(move)
             effect_name = getattr(gate, '_scan_searching_effect', LED_SEARCHING)
@@ -2235,8 +2235,8 @@ def retry_incomplete_decode(gate, now):
     attempt = gate._scan_decode_retry_attempts
     msg = ("[WARN] NFC[%s]: tag decode incomplete; retry %d/%d after %.1fmm jog"
            % (gate._name.capitalize(), attempt, max_attempts, move))
-    logger.info("%s (uid=%s reason=%s)", msg, uid, reason)
-    gate._console(msg)
+    if gate._debug >= 3:
+        logger.info("%s (uid=%s reason=%s)", msg, uid, reason)
     reset_uid_only_read(gate, uid)
     gate._run_jog(move)
     effect_name = getattr(gate, '_scan_searching_effect', LED_SEARCHING)

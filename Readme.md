@@ -104,7 +104,9 @@ The vendored parser currently recognizes Bambu Lab, ELEGOO, Anycubic ACE,
 TigerTag, Creality CFS/K1/K2, QIDI Box, SimplyPrint/QIDI URL tags, OpenTag3D,
 OpenSpool, OpenPrintTag, and generic NDEF JSON filament records. See
 [Spoolman Integration](docs/shared/spoolman-integration.md) for format details
-and auto-create behavior.
+and auto-create behavior. Bambu, TigerTag/TigerTag+, and tested Creality
+CFS/K1/K2 rich tags also expose parser-derived same-spool `spool_identity`
+values for scan-jog left-neighbor interference handling.
 
 ## Documentation
 

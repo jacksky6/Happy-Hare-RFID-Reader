@@ -67,6 +67,10 @@ confirmation.
   represents same-spool identity, not same-chip identity. The readable seed
   and numeric value are kept in metadata/debug output as
   `creality_identity_seed` and `creality_identity_numeric`.
+- 📝 **Documented same-spool identity support** — README and shared docs now
+  describe the Bambu-style `spool_identity` model for Bambu, TigerTag, and
+  Creality rich tags, including the Creality payload fields used and the
+  fact that Creality support has been tested against real spool tags.
 - 🐛 **Scan-jog now preserves stashed spool identity** — the continuous-scan
   fast path that reuses a previously resolved UID now carries the previous
   `spool_identity` along with the spool id, and level-3 logs show both the

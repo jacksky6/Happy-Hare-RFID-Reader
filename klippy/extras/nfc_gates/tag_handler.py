@@ -655,10 +655,11 @@ def capture_mifare_metadata(gate, tag, sector_keys,
         tag.read_incomplete = True
         if not tag.read_retry_reason:
             tag.read_retry_reason = tag.parse_error
-        logger.warning(
-            "[%s]: gate %d — uid=%s  MIFARE read returned no "
-            "blocks (auth failed on all sectors?)",
-            gate._name, gate._gate, uid_hex)
+        if gate._debug >= 3:
+            logger.info(
+                "[%s]: gate %d — uid=%s  MIFARE read returned no "
+                "blocks (auth failed on all sectors?)",
+                gate._name, gate._gate, uid_hex)
         return
     tag.raw_tag_data = block_dict
     if gate._debug >= 3:

@@ -193,6 +193,10 @@ spoolman_auto_create: False
 > When the default-key attempt authenticates nothing, `bambu_reads: True`
 > also tries this Creality Key B against sector 1 only — if that also fails
 > (or `pycryptodome` isn't installed), the read falls through to UID-only.
+> Creality rich reads have been tested against real Creality spool tags. The
+> parser builds a same-spool `spool_identity` from the decoded payload fields,
+> not from the hardware UID, so two tags on the same spool resolve to the same
+> identity for left-neighbor interference handling.
 
 ---
 
@@ -260,18 +264,24 @@ scan_continuous_poll_interval: 0.05
 | `scan_continuous_poll_interval` | `0.05` | NFC read cadence while a continuous chunk is estimated to be in flight. When the chunk completes with no tag, NFC queues the next chunk. |
 
 There is no user setting for left-neighbor interference. During scan-jog, gate
-`N` checks only the cached UID on gate `N - 1`; if it exactly matches the UID
-just read, NFC moves the left neighbor 75 mm out of range, continues scanning,
-and restores the neighbor on scan exit.
+`N` first trusts a Spoolman UID hit when it resolves to a different spool than
+gate `N - 1`. For rich manufacturer tags that expose a same-spool
+`spool_identity` (Bambu `tray_uid`, TigerTag Twin Tag ID, Creality decoded
+payload hash), NFC also compares that identity against the cached identity on
+gate `N - 1`. If it matches, NFC moves the left neighbor 75 mm out of range,
+clears the false read, restarts a full scan on the current lane, and restores
+the neighbor on scan exit.
 
 Continuous scan mode preserves the existing tag-found path: tag actions are
 cached until after rewind, the 0.1 second read-light hold still plays before the
 rewind effect, and `_scan_mm_total` still drives the final rewind distance.
 If a continuous scan sees a UID during motion, NFC waits for the chunk to
 finish, checks whether Spoolman already knows the UID, and stops the scan if it
-does. If the UID does not resolve through Spoolman and rich tag parsing is
-enabled, NFC backs up to the observed UID hit-window center before rich parsing
-and the normal `scan_decode_retry_mm` left/right retry sweep.
+does not need a richer identity check. If the UID does not resolve through
+Spoolman, or if the resolved spool matches the left neighbor and rich tag
+parsing is needed to confirm interference, NFC backs up to the observed UID
+hit-window center before rich parsing and the normal `scan_decode_retry_mm`
+retry sweep.
 
 **Happy Hare post-preload hook (alternative to automatic polling):**
 
