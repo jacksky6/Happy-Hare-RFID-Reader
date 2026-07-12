@@ -61,23 +61,24 @@ confirmation.
   `manufacturer_code` for debugging real tags.
 - ✨ **Creality spool identity added for left-neighbor checks** — `_try_creality_tag()`
   now hashes the parsed structured payload fields
-  `uid:vendor_id:date_code:batch:filament_id:color:length:serial` into a
-  compact decimal value and exposes it as
-  `spool_identity = "creality_<digits>"`. The UID is included because real
-  Creality tags have been observed with placeholder serial `000001`, making
-  the decoded payload alone collide across different physical spools. The
-  readable seed and numeric value are kept in metadata/debug output as
-  `creality_identity_seed` and `creality_identity_numeric`; the payload-only
-  fingerprint is also logged as `creality_payload_identity_seed` /
-  `creality_payload_identity_numeric` for field comparison.
+  `vendor_id:date_code:batch:filament_id:color:length:serial` into a compact
+  decimal value and exposes it as `spool_identity = "creality_<digits>"`.
+  The UID is deliberately not part of this value because `spool_identity`
+  represents same-spool identity, not same-chip identity. The readable seed
+  and numeric value are kept in metadata/debug output as
+  `creality_identity_seed` and `creality_identity_numeric`.
 - 🐛 **Scan-jog now preserves stashed spool identity** — the continuous-scan
   fast path that reuses a previously resolved UID now carries the previous
   `spool_identity` along with the spool id, and level-3 logs show both the
   current lane identity and the left lane identity used for interference
   decisions. When the pending UID matches the stashed UID, scan-jog now tries
-  Spoolman UID lookup before accepting the stashed spool id; if Spoolman has
-  no UID match, it forces the rich tag parse so manufacturer `spool_identity`
-  checks happen before any auto-create path.
+  Spoolman UID lookup before accepting the stashed spool id; if the lookup
+  has no cached `spool_identity`, it forces the rich tag parse so manufacturer
+  `spool_identity` is populated before any auto-create path.
+- 🐛 **Spoolman UID matches no longer suppress scan-mode identity parsing** —
+  during scan-jog, an early Spoolman UID match still supplies the spool id,
+  but structured tag reading continues so Bambu/Creality/TigerTag
+  `spool_identity` is cached on the gate for left-neighbor comparisons.
 - 🐛 **Manufacturer identity is checked before auto-create** — after rich tag
   metadata is parsed and Spoolman UID lookup misses, scan mode compares the
   current tag's `spool_identity` against the left gate before allowing

@@ -155,7 +155,6 @@ _META_SUMMARY_KEYS = (
     'creality_vendor_id', 'creality_filament_id', 'creality_batch',
     'creality_date_code', 'creality_production_date', 'creality_serial',
     'creality_identity_seed', 'creality_identity_numeric',
-    'creality_payload_identity_seed', 'creality_payload_identity_numeric',
     'parse_warning', 'parse_error', 'error',
 )
 
@@ -367,6 +366,17 @@ def resolve_spool_by_uid_before_metadata(gate, tag):
         return None
     tag.spool_id = spool_id
     tag.resolution = {'path': 'early_uid_lookup', 'spool_id': spool_id}
+    force_identity = (
+        getattr(gate, '_scan_mode', False)
+        and getattr(gate, '_tag_parsing', False))
+    if force_identity:
+        if gate._debug >= 3:
+            logger.info(
+                "[%s]: gate %d — uid=%s  early UID lookup resolved "
+                "Spoolman spool_id=%s; continuing structured tag read "
+                "to populate spool_identity",
+                gate._name, gate._gate, uid_hex, spool_id)
+        return spool_id
     release_reader_target(gate, "early_uid_lookup")
     if gate._debug >= 3:
         logger.info(
@@ -686,7 +696,10 @@ def read_current_tag(gate):
     tag.meta = {'uid': uid_hex}
     gate._state.current_tag = tag
 
-    if resolve_spool_by_uid_before_metadata(gate, tag) is not None:
+    early_spool_id = resolve_spool_by_uid_before_metadata(gate, tag)
+    if (early_spool_id is not None
+            and not (getattr(gate, '_scan_mode', False)
+                     and getattr(gate, '_tag_parsing', False))):
         return uid_hex
 
     strategy = classify_tag_target(gate, target_info)

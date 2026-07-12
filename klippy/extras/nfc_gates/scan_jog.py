@@ -567,6 +567,16 @@ def resolve_continuous_pending_uid(gate, now):
                     gate._name.capitalize(), uid)
                 spool_id = None
             if spool_id is not None:
+                if (getattr(gate, '_tag_parsing', False)
+                        and not previous_identity):
+                    if gate._debug >= 3:
+                        logger.info(
+                            "[%s]: continuous scan uid=%s matched stashed UID; "
+                            "Spoolman lookup resolved spool_id=%s but "
+                            "spool_identity=None; forcing rich tag parse to "
+                            "populate identity",
+                            gate._name.capitalize(), uid, spool_id)
+                    return False
                 _cache_continuous_resolved_uid(
                     gate, uid, spool_id, 'scan_previous_uid_spoolman_lookup',
                     spool_identity=previous_identity)
@@ -616,6 +626,14 @@ def resolve_continuous_pending_uid(gate, now):
                 "[%s]: continuous scan uid=%s not found in Spoolman; "
                 "rich tag parse will run after hit-window recenter if enabled",
                 gate._name.capitalize(), uid)
+        return False
+    if getattr(gate, '_tag_parsing', False):
+        if gate._debug >= 3:
+            logger.info(
+                "[%s]: continuous scan uid=%s resolved through Spoolman "
+                "after move complete: spool_id=%s but spool_identity=None; "
+                "forcing rich tag parse to populate identity",
+                gate._name.capitalize(), uid, spool_id)
         return False
     _cache_continuous_resolved_uid(gate, uid, spool_id, 'continuous_uid_lookup')
     if gate._debug >= 3:

@@ -1344,19 +1344,12 @@ def _try_creality_tag(blocks: dict, uid_hex: Optional[str] = None,
     else:
         trace("debug", "Creality AES: vendor_id=%s unknown; using Creality brand fallback",
               vendor_id)
-    payload_identity_seed = ":".join((
+    identity_seed = ":".join((
         vendor_id, date_code, batch, filament_id, color, length, serial))
-    payload_identity_numeric = _creality_spool_identity(payload_identity_seed)
-    clean_uid = re.sub(r"[^0-9A-Fa-f]", "", str(uid_hex or "")).upper()
-    identity_seed = (
-        "%s:%s" % (clean_uid, payload_identity_seed)
-        if clean_uid else payload_identity_seed)
     identity_numeric = _creality_spool_identity(identity_seed)
     trace("debug",
-          "Creality AES: payload_identity_seed=%r payload_identity_numeric=%s "
-          "spool_identity_seed=%r spool_identity_numeric=%s",
-          payload_identity_seed, payload_identity_numeric,
-          identity_seed, identity_numeric)
+          "Creality AES: identity_seed=%r identity_numeric=%s uid=%s",
+          identity_seed, identity_numeric, uid_hex or "unknown")
 
     info: dict = {
         "brand": vendor_name or "Creality",
@@ -1370,8 +1363,6 @@ def _try_creality_tag(blocks: dict, uid_hex: Optional[str] = None,
         "creality_serial": serial,
         "creality_identity_seed": identity_seed,
         "creality_identity_numeric": identity_numeric,
-        "creality_payload_identity_seed": payload_identity_seed,
-        "creality_payload_identity_numeric": payload_identity_numeric,
         "spool_identity": "creality_%s" % identity_numeric,
     }
     if vendor_name:
