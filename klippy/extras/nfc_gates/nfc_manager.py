@@ -427,6 +427,26 @@ def _insert_nfc_endstop_after_lane(text, gate):
     return ''.join(lines), True, "inserted"
 
 
+def _nfc_endstop_status_text(printer, gate, raw_config=None):
+    section = _nfc_endstop_section(gate)
+    if raw_config is None:
+        raw_config = _raw_klipper_config(printer)
+    endstop_obj = printer.lookup_object(section, None)
+    if endstop_obj is None:
+        if section in raw_config:
+            return ("pending restart — [%s] configured but not yet loaded"
+                    % section)
+        return ("MISSING — run NFC_DOCTOR GATE=%d ENDSTOP=ADD"
+                % int(gate._gate))
+    try:
+        triggered = bool(endstop_obj.query_endstop(0))
+    except Exception:
+        return "loaded [%s], state unavailable" % section
+    return "loaded [%s], %s" % (
+        section, "TRIGGERED (filament present)" if triggered
+        else "not triggered")
+
+
 def _find_gate_by_number(gate_number):
     for gate in _lane_instances:
         if (not getattr(gate, '_shared', False)
@@ -618,6 +638,8 @@ def _doctor_lines(printer):
             state = "failed" if gate._failed else "ready/pending init"
             lines.append("    Gate %d [%s/%s]: enabled, %s" %
                          (gate._gate, gate._name, gate._reader_type, state))
+            lines.append("      virtual endstop: %s" %
+                         _nfc_endstop_status_text(printer, gate, raw_config))
 
     missing_endstops = []
     for gate in sorted(enabled_lanes, key=lambda g: g._gate):
