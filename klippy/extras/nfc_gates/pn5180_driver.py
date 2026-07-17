@@ -26,6 +26,7 @@ CMD_READ_REGISTER = 0x04
 CMD_READ_EEPROM = 0x07
 CMD_SEND_DATA = 0x09
 CMD_READ_DATA = 0x0A
+CMD_MFC_AUTHENTICATE = 0x0C
 CMD_LOAD_RF_CONFIG = 0x11
 CMD_RF_ON = 0x16
 CMD_RF_OFF = 0x17
@@ -44,6 +45,8 @@ TRANSCEIVE_STATE_WAIT_TRANSMIT = 1
 TRANSCEIVE_STATE_IDLE = 0
 
 MIFARE_CMD_READ = 0x30
+MIFARE_CMD_AUTH_A = 0x60
+MIFARE_CMD_AUTH_B = 0x61
 
 ISO15693_CMD_INVENTORY = 0x01
 ISO15693_CMD_READ_SINGLE_BLOCK = 0x20
@@ -493,6 +496,38 @@ class PN5180Core:
             page += 4
         return result
 
+    def mifare_authenticate(self, block_addr, key, uid_bytes,
+                            use_key_b=False):
+        """Authenticate a MIFARE Classic sector with the PN5180 Crypto1 engine."""
+        key = list(key or [])
+        uid = list(uid_bytes or [])
+        if len(key) != 6 or len(uid) < 4:
+            return False
+        auth_cmd = MIFARE_CMD_AUTH_B if use_key_b else MIFARE_CMD_AUTH_A
+        response = self._transceive_command(
+            [CMD_MFC_AUTHENTICATE] + key + [auth_cmd, block_addr & 0xFF]
+            + uid[-4:], 1)
+        if len(response) == 1 and response[0] == 0x00:
+            return True
+
+        # A rejected Crypto1 handshake leaves the RF state unsuitable for the
+        # next plain or encrypted frame. Clear it before trying another sector.
+        self.write_register_and_mask(SYSTEM_CONFIG, 0xFFFFFFBF)
+        self.write_register_and_mask(SYSTEM_CONFIG, 0xFFFFFFF8)
+        self.clear_irq_status()
+        return False
+
+    def mifare_read_block(self, block_addr):
+        """Read one authenticated MIFARE Classic data block."""
+        self.send_data([MIFARE_CMD_READ, block_addr & 0xFF])
+        if not self._wait_irq(RX_IRQ_STAT, raise_on_error=False):
+            return None
+        length = self.rx_bytes_received()
+        if length != 16:
+            return None
+        data = self.read_data(length)
+        return bytes(data) if len(data) == 16 else None
+
     @staticmethod
     def _expected_tlv_total_length(data):
         data = bytes(data)
@@ -590,10 +625,17 @@ class PN5180Driver:
             return None
         uid = list(tag['uid'])
         sak = int(tag['sak']) & 0xFF
-        # This first integration supports Type-2 rich reads only. Preserve
-        # other ISO14443A UIDs for Spoolman without entering MIFARE rich reads.
-        protocol = 'iso14443a' if sak == 0x00 else 'uid_only'
-        protocol_name = 'ISO14443A' if protocol == 'iso14443a' else 'ISO14443A_UID_ONLY'
+        if sak in (0xFF, 0x7F, 0x80):
+            return None
+        if sak & 0x08:
+            protocol = 'mifare_classic'
+            protocol_name = 'ISO14443A_MIFARE_CLASSIC'
+        elif sak == 0x00:
+            protocol = 'iso14443a'
+            protocol_name = 'ISO14443A'
+        else:
+            protocol = 'uid_only'
+            protocol_name = 'ISO14443A_UID_ONLY'
         atqa_bytes = list(tag.get('atqa_bytes') or [])
         return {
             'reader': 'pn5180', 'protocol': protocol,
@@ -688,6 +730,53 @@ class PN5180Driver:
             return self._core.ntag_read_user_memory(start_page, end_page)
         finally:
             self._release_current_target(reason='ntag_user_memory_complete')
+
+    def mifare_read_authenticated_blocks(self, sector_keys, sectors,
+                                         uid_bytes=None, use_key_b=False):
+        """Read authenticated MIFARE Classic blocks for the shared tag parser."""
+        blocks = {}
+        auth_failed_sectors = []
+        read_failed_blocks = []
+        try:
+            self._ensure_target('mifare_classic')
+            uid = list(uid_bytes or self.current_uid or [])
+            if len(uid) < 4:
+                return {
+                    'uid_bytes': bytes(uid), 'blocks': blocks,
+                    'auth_failed_sectors': list(sectors),
+                }
+            for sector in sectors:
+                trailer = sector * 4 + 3
+                key = sector_keys[sector] if sector < len(sector_keys) else None
+                if key is None:
+                    continue
+                if not self._core.mifare_authenticate(
+                        trailer, key, uid, use_key_b=use_key_b):
+                    auth_failed_sectors.append(sector)
+                    if self._debug >= 3:
+                        logger.info(
+                            'PN5180: gate %d MIFARE sector %d auth failed',
+                            self._gate, sector)
+                    continue
+                for block_offset in range(3):
+                    block_addr = sector * 4 + block_offset
+                    data = self._core.mifare_read_block(block_addr)
+                    if data is not None:
+                        blocks[block_addr] = data
+                    else:
+                        read_failed_blocks.append(block_addr)
+                        if self._debug >= 3:
+                            logger.info(
+                                'PN5180: gate %d MIFARE block %d read failed',
+                                self._gate, block_addr)
+            result = {'uid_bytes': bytes(uid), 'blocks': blocks}
+            if auth_failed_sectors:
+                result['auth_failed_sectors'] = auth_failed_sectors
+            if read_failed_blocks:
+                result['read_failed_blocks'] = read_failed_blocks
+            return result
+        finally:
+            self._release_current_target(reason='mifare_read_complete')
 
     def iso15693_read_user_memory(self, tag=None, start_block=0,
                                   end_block=DEFAULT_ISO15693_END_BLOCK,
