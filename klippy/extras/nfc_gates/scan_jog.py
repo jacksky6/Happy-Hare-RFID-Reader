@@ -114,6 +114,18 @@ def _led_release(gate):
     return result.ok
 
 
+def _restore_hh_gate_led_quiet(gate):
+    """Restore this gate's normal Happy Hare LED state after parking."""
+    led = LEDEffectManager(gate.printer, reactor=gate.reactor, name=gate._name)
+    result = led.release(gate=gate._gate)
+    if result.ok:
+        logger.info("[%s]: Happy Hare gate LED restored", gate._name)
+        gate._scan_rewind_led_released = True
+        return True
+    logger.warning("[%s]: Happy Hare gate LED restore failed: %s",
+                   gate._name, result.error)
+    return False
+
 
 def manual_jog_scan(gate, gcmd):
     """Start scan-and-jog on demand, matching the automatic trigger path.
@@ -2822,3 +2834,4 @@ def run_rewind(gate):
     finally:
         _led_release(gate)
     run_hh_script(gate, "_MMU_STEP_UNLOAD_GATE")
+    _restore_hh_gate_led_quiet(gate)
