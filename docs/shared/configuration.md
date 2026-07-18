@@ -72,7 +72,7 @@ i2c_speed:   100000
 | `i2c_mcu` | per section | Klipper MCU name that hosts the reader. Required in `[nfc_gate laneN]` and `[nfc_gate shared]`. |
 | `cs_pin` | unset | Required for RC522 SPI readers. Use the Klipper pin name connected to RC522 SDA/SS/CS. |
 | `spi_bus` / software SPI pins | unset | Required for RC522 SPI readers. Use Klipper's normal SPI config keys for the selected MCU. |
-| `spi_speed` | `1000000` for RC522 | Optional RC522 SPI clock in Hz. The default is conservative. |
+| `spi_speed` | `500000` | Optional SPI clock in Hz for RC522 and PN5180. Use `500000` with hardware SPI; set `100000` for software SPI. |
 | `rc522_transceive_delay` | `0.035` | Optional RC522 UID-read response wait in seconds. Leave at the default unless hardware testing shows the reader needs more time. |
 
 Reader settings inherit from the base `[nfc_gate]` section. A lane with no
@@ -117,7 +117,7 @@ mmu_gate:    1
 i2c_mcu:     mmu1
 cs_pin:      mmu1:PA4
 spi_bus:     spi1
-# spi_speed: 1000000
+# spi_speed: 500000  # Hardware SPI default; use 100000 for software SPI
 # rc522_transceive_delay: 0.035
 ```
 

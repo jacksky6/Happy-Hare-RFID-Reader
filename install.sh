@@ -1692,14 +1692,12 @@ else
     else
         SPI_BUS="$(detect_shared_config_value "${NFC_READER_SHARED_CFG}" "spi_bus" "spi2_PB14_PB15_PB13")"
         SPI_CS_PIN="$(detect_shared_config_value "${NFC_READER_SHARED_CFG}" "cs_pin" "mmu:PA8")"
-        SPI_DEFAULT_SPEED="1000000"
-        if [ "${SHARED_READER_TYPE}" = "pn5180" ]; then
-            SPI_DEFAULT_SPEED="100000"
-        fi
+        SPI_DEFAULT_SPEED="500000"
         SPI_SPEED="$(detect_shared_config_value "${NFC_READER_SHARED_CFG}" "spi_speed" "${SPI_DEFAULT_SPEED}")"
         prompt_with_default SPI_BUS "5. SPI bus name" "${SPI_BUS}"
         prompt_with_default SPI_CS_PIN "6. SPI chip-select pin" "${SPI_CS_PIN}"
-        prompt_with_default SPI_SPEED "7. SPI speed (Hz)" "${SPI_SPEED}"
+        prompt_with_default SPI_SPEED \
+            "7. SPI speed (Hz; hardware 500k, software 100k)" "${SPI_SPEED}"
         if [ "${SHARED_READER_TYPE}" = "pn5180" ]; then
             PN5180_RESET_PIN="$(detect_shared_config_value "${NFC_READER_SHARED_CFG}" "reset_pin" "mmu:PC6")"
             PN5180_BUSY_PIN="$(detect_shared_config_value "${NFC_READER_SHARED_CFG}" "busy_pin" "mmu:PB0")"

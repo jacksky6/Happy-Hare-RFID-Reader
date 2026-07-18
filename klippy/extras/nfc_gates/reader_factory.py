@@ -26,8 +26,8 @@ DEFAULT_I2C_SPEED = {
     'pn7160': 100000,
 }
 DEFAULT_SPI_SPEED = {
-    'rc522': 1000000,
-    'pn5180': 100000,
+    'rc522': 500000,
+    'pn5180': 500000,
 }
 PN7160_I2C_ADDRESSES = (0x28, 0x29, 0x2A, 0x2B)
 
@@ -71,7 +71,7 @@ def default_i2c_speed(reader_type):
 
 
 def default_spi_speed(reader_type):
-    return DEFAULT_SPI_SPEED.get(reader_type, 1000000)
+    return DEFAULT_SPI_SPEED.get(reader_type, 500000)
 
 
 def validate_reader_i2c_address(config, reader_type, address):
