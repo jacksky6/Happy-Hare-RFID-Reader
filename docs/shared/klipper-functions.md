@@ -757,7 +757,7 @@ command surface.
 
 ## Shared Reader
 
-The shared reader is a single NFC reader mounted inside the MMU body. It defaults to PN532 and can use PN7160 with `reader_type: pn7160`. Tap a spool tag on it before loading; NFC stages the spool ID for the next pregate preload automatically. See [Shared Reader](shared-reader.md) for the full setup and workflow guide.
+The shared reader is a single NFC reader mounted inside the MMU body. It defaults to PN532 and can use PN7160, RC522, or PN5180 through `reader_type`. PN5180 needs its dedicated BUSY and RST wiring; see [PN5180 wiring](../i2c-nfc/pn5180-wiring.md). Tap a spool tag on it before loading; NFC stages the spool ID for the next pregate preload automatically. See [Shared Reader](shared-reader.md) for the full setup and workflow guide.
 
 ### Normal flow
 

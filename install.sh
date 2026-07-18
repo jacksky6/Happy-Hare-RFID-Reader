@@ -2211,8 +2211,10 @@ if [ "${READER_TYPE}" = "shared" ]; then
         echo ""
     elif [ "${SHARED_READER_TYPE}" = "pn5180" ]; then
         echo "  PN5180 note:"
-        echo "     BUSY is mandatory and active high. Do not use pn5180_command_delay;"
-        echo "     the driver synchronizes every SPI command with busy_pin instead."
+        echo "     BUSY and RST are mandatory; BUSY is active high. Both 5V and PSF 3.3V"
+        echo "     power connections are required. See docs/i2c-nfc/pn5180-wiring.md."
+        echo "     Do not use pn5180_command_delay; the driver synchronizes every SPI"
+        echo "     command with busy_pin instead."
         echo ""
     fi
 else
