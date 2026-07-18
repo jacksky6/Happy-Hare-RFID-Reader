@@ -28,7 +28,7 @@ DECODE_RETRY_SETTLE_DELAY = 0.2
 SCAN_JOG_SUBSTEPS = 3
 LEFT_NEIGHBOR_CLEARANCE_MM = 75.0
 LEFT_NEIGHBOR_CLEARANCE_RETRIES = 3
-TAG_READ_HOLD_DELAY = 0.1
+TAG_READ_HOLD_DELAY = 0.35
 CONTINUOUS_QUEUE_COMPLETE_POLL_FRACTION = 0.25
 CONTINUOUS_QUEUE_COMPLETE_MIN_EPSILON = 0.01
 # Treat sub-step floating-point residue as the end of a scan move.  Formatting
@@ -104,10 +104,27 @@ def _cancel_led_reassert(gate):
 
 def _led_release(gate):
     """Return LED control to Happy Hare."""
+    if getattr(gate, '_scan_rewind_led_released', False):
+        return True
     _cancel_led_reassert(gate)
     led = LEDEffectManager(gate.printer, reactor=gate.reactor, name=gate._name)
-    led.release()
+    result = led.release(gate=gate._gate)
+    if result.ok:
+        gate._scan_rewind_led_released = True
+    return result.ok
 
+
+def _restore_hh_gate_led_quiet(gate):
+    """Restore this gate's normal Happy Hare LED state after parking."""
+    script = "MMU_SET_LED GATE=%d EXIT_EFFECT=gate_status FADETIME=0" % gate._gate
+    try:
+        run_hh_script(gate, script)
+        logger.info("[%s]: Happy Hare gate LED restored", gate._name)
+        return True
+    except Exception as e:
+        logger.warning("[%s]: Happy Hare gate LED restore failed: %s",
+                       gate._name, e)
+        return False
 
 
 def manual_jog_scan(gate, gcmd):
@@ -1119,6 +1136,7 @@ def start(gate, max_mm=None):
     gate._scan_gate_selected = False  # deferred to first jog (must run from timer, not GCode handler)
     gate._scan_hh_prep_pending = True
     gate._scan_led_reassert_effect = None
+    gate._scan_rewind_led_released = False
 
     gate._scan_timer = gate.reactor.register_timer(
         gate._scan_step_event,
@@ -2283,9 +2301,9 @@ def finish(gate):
     logger.info(msg)
     gate._console(msg)
     # Rewind LED fires before _run_rewind() so it shows during the entire move.
+    gate._scan_rewind_led_released = False
     _led_effect(gate, getattr(gate, '_scan_rewind_effect', LED_REWINDING))
     gate._run_rewind()
-    # _led_release() is called at the end of finish() after all work is done.
     msg = _rewind_complete_message(gate)
     logger.info(msg)
     gate._console(msg)
@@ -2354,6 +2372,7 @@ def rewind_and_exit(gate):
     msg = _rewind_message(gate, "[REWIND]", prefix="no tag found; ")
     logger.info(msg)
     gate._console(msg)
+    gate._scan_rewind_led_released = False
     _led_effect(gate, getattr(gate, '_scan_rewind_effect', LED_REWINDING))
     gate._run_rewind()
     msg = _rewind_complete_message(gate)
@@ -2543,6 +2562,10 @@ def run_homing_jog(gate, mm, speed=None, accel=None):
     if not gate._scan_gate_selected:
         gate._scan_gate_selected = True
         select_gate_quiet(gate, gate._gate)
+    if getattr(gate, '_scan_mode', False) and mm > 0.0:
+        effect_name = getattr(gate, '_scan_searching_effect', LED_SEARCHING)
+        _led_effect(gate, effect_name)
+        _schedule_led_reassert(gate, effect_name)
     if run_direct_homing_jog(gate, mm, speed=speed, accel=accel):
         return "homing"
     start_time = gate.reactor.monotonic()
@@ -2802,13 +2825,18 @@ def _rewind_complete_message(gate):
 
 def run_rewind(gate):
     if gate._scan_mm_total <= 0.0:
+        _led_release(gate)
         return
     gcode = gate.printer.lookup_object('gcode')
     _, _, fast_rewind = _rewind_parts(gate)
-    if fast_rewind > 0.0:
-        if not run_direct_mmu_move(gate, -fast_rewind):
-            run_hh_script(
-                gate,
-                "_MMU_STEP_MOVE MOVE=%.2f MOTOR=gear ALLOW_BYPASS=1"
-                % (-fast_rewind))
+    try:
+        if fast_rewind > 0.0:
+            if not run_direct_mmu_move(gate, -fast_rewind):
+                run_hh_script(
+                    gate,
+                    "_MMU_STEP_MOVE MOVE=%.2f MOTOR=gear ALLOW_BYPASS=1"
+                    % (-fast_rewind))
+    finally:
+        _led_release(gate)
     run_hh_script(gate, "_MMU_STEP_UNLOAD_GATE")
+    _restore_hh_gate_led_quiet(gate)

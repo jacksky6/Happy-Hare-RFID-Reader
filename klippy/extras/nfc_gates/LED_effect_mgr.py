@@ -72,9 +72,6 @@ def hh_led_script(effect_name, duration=None, gate=None, unit=None,
     if not effect:
         return ''
     if direct_effect:
-        # V4's MMU_SET_LED validates only configured operation effects. NFC's
-        # generated [mmu_led_effect] instances must therefore be addressed
-        # directly by their full generated name.
         return "_MMU_SET_LED_EFFECT EFFECT=%s REPLACE=1" % effect
     parts = ["MMU_SET_LED"]
     if unit is not None:
@@ -95,6 +92,7 @@ def hh_led_script(effect_name, duration=None, gate=None, unit=None,
             duration = 0.0
         if duration > 0.0:
             parts.append("DURATION=%.2f" % duration)
+    parts.append("FADETIME=0")
     return " ".join(parts)
 
 
@@ -209,7 +207,7 @@ class LEDEffectManager:
                    target=None):
         effect = (effect_name or '').strip()
         display_effect = (display_effect or effect).strip()
-        v4_direct = is_happy_hare_v4(self.printer)
+        v4_direct = is_happy_hare_v4(self.printer) and gate is None
         script = hh_led_script(
             display_effect if v4_direct else effect,
             duration=duration, gate=gate, unit=unit,
@@ -378,19 +376,31 @@ class LEDEffectManager:
 
         self._register_timer(_run, delay)
 
-    def release(self, async_dispatch=False):
+    def release(self, async_dispatch=False, gate=None, unit=None):
         if is_happy_hare_v4(self.printer):
             registry = self._v4_effect_registry()
-            effects = sorted(set(
-                effect for effect, _token in registry['targets'].values()))
-            registry['targets'].clear()
+            if gate is None:
+                effects = sorted(set(
+                    effect for effect, _token in registry['targets'].values()))
+                registry['targets'].clear()
+            else:
+                target = 'lane:%d' % int(gate)
+                current = registry['targets'].pop(target, None)
+                effects = [current[0]] if current is not None else []
             stop_scripts = [
                 "_MMU_SET_LED_EFFECT EFFECT=%s STOP=1" % effect
                 for effect in effects]
             stop_scripts.append("MMU_GATE_MAP QUIET=1")
             script = "\n".join(stop_scripts)
         else:
-            script = "MMU_GATE_MAP QUIET=1"
+            if gate is not None:
+                parts = ["MMU_SET_LED"]
+                parts.append("GATE=%d" % int(gate))
+                parts.append("EXIT_EFFECT=gate_status")
+                parts.append("FADETIME=0")
+                script = "%s\nMMU_GATE_MAP QUIET=1" % " ".join(parts)
+            else:
+                script = "MMU_GATE_MAP QUIET=1"
         try:
             if async_dispatch and self._run_async(
                     lambda et, _s=script: self._run_script(_s)):
@@ -402,4 +412,3 @@ class LEDEffectManager:
         except Exception as e:
             logger.warning("[%s]: LED release failed: %s", self.name, e)
             return LEDResult(False, script=script, error=e, event=EVENT_RELEASE)
-
