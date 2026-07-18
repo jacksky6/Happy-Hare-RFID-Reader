@@ -2,7 +2,7 @@
 
 [← Configuration](configuration.md) | [Commands](klipper-functions.md) | [Messages →](message_definition.md)
 
-The shared reader is an optional single NFC reader mounted **inside the MMU body** - not tied to any EMU lane. It defaults to PN532 hardware, can use PN7160 with `reader_type: pn7160`, and can use RC522 as an SPI reader with `reader_type: rc522`. You tap a tagged spool on it before loading; when Happy Hare starts the pregate preload NFC stages the spool ID automatically.
+The shared reader is an optional single NFC reader mounted **inside the MMU body** - not tied to any EMU lane. It defaults to PN532 hardware and can use PN7160, RC522, or PN5180 through `reader_type`. PN5180 uses SPI and additionally requires a wired active-high BUSY signal and MCU-controlled RST. You tap a tagged spool on it before loading; when Happy Hare starts the pregate preload NFC stages the spool ID automatically.
 
 For the full console/log message reference, see [Message Definitions](message_definition.md).
 
@@ -115,7 +115,7 @@ In hybrid installs, per-lane readers and the shared reader can coexist. The
 shared reader stages a spool for the next Happy Hare pregate preload; per-lane
 readers can still run scan-jog for lanes that have dedicated hardware.
 
-Run `install.sh` to generate `nfc_reader_shared.cfg` automatically, or copy `config/nfc_reader_shared.cfg` from the repo and fill in `reader_type`, `i2c_mcu`, `i2c_bus`, and `i2c_address` as needed. If `reader_type` is omitted, the shared reader inherits the base `[nfc_gate]` default, which is `pn532` in the shipped config.
+Run `install.sh` to generate `nfc_reader_shared.cfg` automatically, or copy `config/nfc_reader_shared.cfg` from the repo and fill in the I2C or SPI settings required by `reader_type`. If `reader_type` is omitted, the shared reader inherits the base `[nfc_gate]` default, which is `pn532` in the shipped config.
 
 The `[nfc_gate shared]` section in `nfc_reader_shared.cfg`:
 
@@ -128,6 +128,26 @@ i2c_mcu:         mmu
 shared:          true
 startup_polling: 1
 ```
+
+PN5180 shared-reader example (SLB):
+
+```ini
+[nfc_gate shared]
+enabled:         True
+reader_type:     pn5180
+i2c_mcu:         mmu
+spi_bus:         spi2_PB14_PB15_PB13
+cs_pin:          mmu:PA8
+reset_pin:       mmu:PC6
+busy_pin:        mmu:PB0
+spi_speed:       500000
+shared:          true
+startup_polling: 1
+```
+
+PN5180 requires both 5V and PSF 3.3V power, plus GND, four SPI signals, BUSY,
+and RST. See [PN5180 wiring](../i2c-nfc/pn5180-wiring.md) for the complete
+nine-wire SLB table before connecting the module.
 
 PN7160 shared-reader example:
 
@@ -169,8 +189,10 @@ force_spool_id:         true
 | Key | Default | Description |
 |---|---|---|
 | `enabled` | `True` | Set `False` to keep the shared-reader config installed without initializing the reader. |
-| `reader_type` | inherited from `[nfc_gate]` (`pn532` in the shipped config) | Reader driver to use. Supported values are `pn532`, `pn7160`, and `rc522`. |
-| `i2c_address` | reader-specific default | I2C address for the shared reader. PN532 defaults to `36`; PN7160 must be one of `40-43` (`0x28-0x2B`). Not used by RC522. |
+| `reader_type` | inherited from `[nfc_gate]` (`pn532` in the shipped config) | Reader driver to use. Supported values are `pn532`, `pn7160`, `rc522`, and `pn5180`. |
+| `i2c_address` | reader-specific default | I2C address for the shared reader. PN532 defaults to `36`; PN7160 must be one of `40-43` (`0x28-0x2B`). Not used by RC522 or PN5180. |
+| `spi_bus`, `cs_pin`, `spi_speed` | reader-specific | SPI settings for RC522 and PN5180. Hardware SPI defaults to `500000`; configure `100000` for software SPI. |
+| `reset_pin`, `busy_pin` | PN5180 only | PN5180 RST and active-high BUSY GPIO. Both wires are mandatory; `reset_pin` must be configured. |
 | `shared` | `false` | Must be `true`. Enables shared dispatch mode. |
 | `startup_polling` | `1` in the shipped template | Set to `1` to start polling at Klipper boot. |
 | `scan_poll_interval` | inherited from `[nfc_gate]` | Seconds between shared-reader tag reads while polling. The shipped default is `0.25`. |
