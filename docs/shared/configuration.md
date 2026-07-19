@@ -681,8 +681,9 @@ per-lane readers and a shared reader coexist, configure:
 variable_user_post_preload_extension: '_NFC_HYBRID_PRELOAD'
 ```
 
-The hybrid hook gives the configured lane reader priority and processes the
-shared-reader transaction only for gates without a lane reader.
+The hybrid hook starts the configured lane reader first. If its scan reaches a
+final no-tag result, staged shared-reader data is assigned to that same gate.
+Gates without a lane reader use the shared-reader transaction directly.
 
 `variable_user_post_preload_extension` fires at the start of every pregate load. `PRELOAD_CHECK` skips only while printing — it is safe to leave wired for all loads. If no spool is staged a console message advises the user; with `force_spool_id: true` that advisory uses the `[ERROR]` prefix.
 

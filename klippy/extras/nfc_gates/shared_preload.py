@@ -232,6 +232,42 @@ class SharedPreloadCoordinator:
             "[OK] NFC[%s]: spool %d loaded — ready for next tag"
             % (gate._name, spool_id)))
 
+    def fallback_to_gate(self, target_gate):
+        """Assign a staged shared tag after a hybrid lane scan cannot read it."""
+        gate = self._gate
+        if target_gate < 0 or gate._is_printing():
+            return False
+        gate._shared_clear_preload_approval()
+        gate._shared_expire_pending_if_needed()
+        if not gate._shared_has_pending():
+            return False
+
+        uid = gate._shared_pending_uid or ''
+        spool_id = gate._shared_pending_spool
+        metadata = (dict(gate._shared_pending_metadata)
+                    if gate._shared_pending_metadata is not None else None)
+        auto_created = gate._shared_pending_auto_created
+        pending_label = gate._shared_pending_label()
+
+        gate._shared_clear_pending()
+        gate._shared_read_deadline = 0.0
+        gate._polling = True
+        gate.reactor.update_timer(gate._poll_timer, gate.reactor.NOW)
+        gate._klipper.dispatch(
+            'changed', target_gate, uid, spool_id, meta=metadata,
+            auto_created=auto_created)
+        gate._shared_last_action = (
+            "applied %s to gate %d after lane scan fallback"
+            % (pending_label, target_gate))
+        logger.info(
+            "[OK] NFC[%s]: lane scan fallback applied %s to gate %d",
+            gate._name, pending_label, target_gate)
+        if gate._gcode is not None:
+            gate._gcode.respond_info(color_console_tags(
+                "[OK] NFC[%s]: lane scan fallback applied %s to gate %d"
+                % (gate._name, pending_label, target_gate)))
+        return True
+
     def clear_assigned(self, gcmd):
         gate = self._gate
         spool_id = gcmd.get_int('SPOOL_ID', -1)

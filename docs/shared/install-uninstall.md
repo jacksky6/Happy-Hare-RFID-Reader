@@ -209,8 +209,9 @@ For a hybrid installation that also has per-lane readers, use this instead:
 variable_user_post_preload_extension: '_NFC_HYBRID_PRELOAD'
 ```
 
-`_NFC_HYBRID_PRELOAD` gives a configured lane reader priority and uses the
-shared reader only when the loaded gate has no lane reader.
+`_NFC_HYBRID_PRELOAD` starts a configured lane reader first. If the lane scan
+cannot read a tag, it applies staged shared-reader data to the loaded gate.
+It uses the shared reader directly for a gate without a lane reader.
 
 Without this, NFC never sees the preload event and the spool ID is never applied to the gate.
 

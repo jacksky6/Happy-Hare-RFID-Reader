@@ -43,7 +43,9 @@ enabling `spoolman_auto_create`.
 
 For a hybrid installation with both reader types, use `_NFC_HYBRID_PRELOAD`
 instead of `_NFC_SHARED_PRELOAD`. It starts scan-jog for a configured lane
-reader and uses the shared reader only for a loaded gate without one.
+reader and applies staged shared-reader data only if that scan cannot read a
+tag. It uses the shared reader directly for a loaded gate without a lane
+reader.
 
 ---
 
@@ -57,7 +59,7 @@ reader and uses the shared reader only for a loaded gate without one.
 
 4. **Push the filament tip into the pregate/buffer sensor.** Happy Hare detects filament at the sensor and begins a pregate load. HH's action transitions to `loading`.
 
-5. **Happy Hare fires `user_post_preload_extension` -> `_NFC_SHARED_PRELOAD` macro.** This happens automatically - no user action required. The macro validates the pending shared-reader spool that was already staged as `NEXT_SPOOLID`. Hybrid installs use `_NFC_HYBRID_PRELOAD`, which sends gates with a configured lane reader to scan-jog first.
+5. **Happy Hare fires `user_post_preload_extension` -> `_NFC_SHARED_PRELOAD` macro.** This happens automatically - no user action required. The macro validates the pending shared-reader spool that was already staged as `NEXT_SPOOLID`. Hybrid installs use `_NFC_HYBRID_PRELOAD`, which scans a configured lane reader first and uses staged shared data only when that scan cannot read a tag.
 
 6. **The macro commits the staged spool.** It calls `NFC_SHARED PRELOAD_CHECK=1 EXPECTED_SPOOL_ID=<spool_id>`, then `NFC_SHARED PRELOAD_COMMIT=1 SPOOL_ID=<spool_id>`. Happy Hare owns the gate assignment through its preload flow.
 
