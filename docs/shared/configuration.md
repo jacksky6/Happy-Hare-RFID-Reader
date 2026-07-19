@@ -225,7 +225,7 @@ spoolman_auto_create: False
 
 ```ini
 [nfc_gate]
-startup_polling:    1
+startup_polling:    -1
 startup_poll_delay: 0.0
 poll_interval:      10
 absent_threshold:   3
@@ -233,7 +233,7 @@ absent_threshold:   3
 
 | Setting | Default | Description |
 |---|---|---|
-| `startup_polling` | `1` | `-1` = manual start only. `1` = start polling automatically after reader init. `0` = explicitly disabled (useful as a lane override). |
+| `startup_polling` | `-1` | `-1` = manual start only, the default for hook-driven lane scans. `1` = start optional background lane polling automatically after reader init. `0` = explicitly disabled. The shared-reader section overrides this with `1`. |
 | `startup_poll_delay` | `0.0` | Seconds to wait before the first automatic poll. The shipped hardware config staggers this by 0.5 seconds per lane. |
 | `poll_interval` | `10` | Seconds between polls while background polling is active. |
 | `absent_threshold` | `3` | Consecutive missed reads before `_NFC_SPOOL_REMOVED` fires. At 10s interval, default = ~30s before removal. |

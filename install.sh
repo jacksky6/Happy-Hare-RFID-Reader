@@ -1208,7 +1208,7 @@ prompt_lane_i2c_bus() {
     local reply
 
     default_label="$(lane_bus_label "${default_bus}")"
-    echo "7. Per-lane reader I2C bus"
+    echo "6. Per-lane reader I2C bus"
     echo "   $(choice_style SLB "${default_label}") = i2c2_PB10_PB11"
     echo "   $(choice_style EBB "${default_label}") = i2c3_PB3_PB4"
     echo "   Enter a bus name directly if your lane MCUs use different pins."
@@ -1245,7 +1245,7 @@ prompt_scan_jog_max_mode() {
     local default_mode="fixed"
     local default_distance="480.0"
 
-    echo "8. Scan-jog max travel"
+    echo "7. Scan-jog max travel"
     echo "   $(choice_style fixed "${default_mode}")  = use scan_jog_max, default 480mm"
     echo "   $(choice_style bowden "${default_mode}") = keep trying until the lane Bowden length is reached"
     while true; do
@@ -1561,21 +1561,21 @@ if [ "${READER_TYPE}" = "lane" ]; then
         SPOOLMAN_URL="disabled"
     fi
 
-    prompt_yes_no STARTUP_POLLING \
-        "5. Start NFC polling automatically on Klipper startup?" \
-        "yes"
+    # Per-lane readers are driven by the Happy Hare post-preload hook.
+    # Keep optional background polling disabled in the generated config.
+    STARTUP_POLLING="no"
 
     prompt_yes_no SCAN_ENABLED \
-        "6. Enable scan-jog when a loaded tag is out of read range?" \
+        "5. Enable scan-jog when a loaded tag is out of read range?" \
         "yes"
 
     if [ "${HH_VERSION}" = "v4" ]; then
         LANE_MCU_PREFIX="unit0_gate"
-        echo "7. Happy Hare V4 default MCU naming"
+        echo "6. Happy Hare V4 default MCU naming"
         echo "   This writes i2c_mcu values as unit0_gate0, unit0_gate1, etc."
     else
         prompt_with_default LANE_MCU_PREFIX \
-            "7. Lane reader MCU name prefix" \
+            "6. Lane reader MCU name prefix" \
             "mmu"
         echo "   This writes i2c_mcu values as ${LANE_MCU_PREFIX}0, ${LANE_MCU_PREFIX}1, etc."
     fi
@@ -1588,7 +1588,7 @@ if [ "${READER_TYPE}" = "lane" ]; then
     prompt_scan_jog_max_mode SCAN_JOG_MAX_MODE SCAN_JOG_MAX
     echo ""
 
-    echo "10. Tag read mode"
+    echo "8. Tag read mode"
     echo "   $(choice_style spoolman spoolman) = UID-only lookup in Spoolman's extra field"
     echo "   $(choice_style rich spoolman)     = read tag metadata, then resolve/create Spoolman records"
     if [ "${SPOOLMAN_MODE}" = "disabled" ]; then
@@ -1610,11 +1610,11 @@ if [ "${READER_TYPE}" = "lane" ]; then
         echo "   Factory-tagged Bambu spools are MIFARE Classic and require"
         echo "   authenticated reads plus the pycryptodome HKDF dependency."
         prompt_yes_no BAMBU_READS \
-            "11. Will you read factory-tagged Bambu spools with rich metadata?" \
+            "9. Will you read factory-tagged Bambu spools with rich metadata?" \
             "no"
         if [ "${SPOOLMAN_MODE}" != "disabled" ]; then
             prompt_yes_no SPOOLMAN_AUTO_CREATE \
-                "12. Auto-create missing Spoolman spools from rich tag metadata?" \
+                "10. Auto-create missing Spoolman spools from rich tag metadata?" \
                 "yes"
         fi
     fi
@@ -1746,7 +1746,11 @@ echo "${BOLD}══════════════════════�
 echo "  Happy Hare:        ${HH_VERSION}"
 echo "  Reader layout:     ${READER_TYPE}"
 echo "  Spoolman:          ${SPOOLMAN_URL}"
-echo "  Startup polling:   ${STARTUP_POLLING}"
+if [ "${READER_TYPE}" = "lane" ]; then
+    echo "  Lane polling:      disabled (post-preload hook)"
+else
+    echo "  Startup polling:   ${STARTUP_POLLING}"
+fi
 if [ "${READER_TYPE}" = "shared" ]; then
     echo "  Reader hardware:   ${SHARED_READER_TYPE}"
     if [ "${SHARED_READER_TYPE}" = "pn532" ] || [ "${SHARED_READER_TYPE}" = "pn7160" ]; then
@@ -2136,7 +2140,11 @@ else
     fi
 fi
 echo "    spoolman_url:       ${SPOOLMAN_URL}"
-echo "    startup_polling:    ${STARTUP_POLLING}"
+if [ "${READER_TYPE}" = "lane" ]; then
+    echo "    startup_polling:    -1 (post-preload hook)"
+else
+    echo "    startup_polling:    ${STARTUP_POLLING}"
+fi
 if [ "${READER_TYPE}" = "lane" ]; then
     echo "    scan_jog:           ${SCAN_ENABLED}"
 fi
