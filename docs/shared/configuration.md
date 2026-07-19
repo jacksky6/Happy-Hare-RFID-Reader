@@ -634,7 +634,7 @@ force_spool_id:         true
 | `startup_polling` | `1` in the shipped template | Set to `1` to poll at Klipper boot. Set to `0` or `-1` if you want to start it manually with `NFC_SHARED READ=1`. |
 | `scan_poll_interval` | inherited from `[nfc_gate]` | Seconds between shared-reader tag reads while polling. The shipped default is `0.25`. |
 | `poll_interval` | inherited from `[nfc_gate]` | Ignored for shared-reader read cadence; lane readers still use it for normal background polling. |
-| `pending_spool_id_timeout` | set in `mmu_parameters.cfg` | Seconds a scanned spool remains eligible for the next preload. NFC reads this from Happy Hare's `[mmu]` section at connect time (falls back to 30 s). Set it in `~/printer_data/config/mmu/base/mmu_parameters.cfg`. |
+| `pending_spool_id_timeout` | Happy Hare `[mmu]` value or `60s` | Seconds a scanned spool remains eligible for the next preload. NFC uses Happy Hare's active `[mmu]` value when it is exposed through Klipper; otherwise it uses 60 s. |
 | `shared_read_timeout` | `120.0` | Seconds polling may run without resolving a valid tag before auto-stopping. No effect when started via `startup_polling` or PRELOAD_CHECK auto-restart. |
 | `shared_tag_read_effect` | `''` | Name of a `[mmu_led_effect]` to play as soon as the shared reader sees a tag. Leave empty to skip tag-detected LED feedback. |
 | `read_effect_duration` | `2.0` | HH duration used by `NFC_SHARED LED_TEST=1`. Normal shared scans do not pass this duration to HH; NFC uses it only as a failsafe release window if no follow-up state replaces the read cue. |

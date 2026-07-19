@@ -53,7 +53,7 @@ reader.
 
 1. **Shared reader is polling.** `startup_polling: 1` starts it at boot. It scans continuously, pausing automatically when printing starts and resuming when printing completes — no manual intervention required.
 
-2. **Tap your spool tag on the shared reader.** NFC reads the UID and looks it up in Spoolman. Tag detection can flash yellow, auto-create can run a yellow chase while Spoolman creates a missing spool, and the ready-to-load confirmation is the green 2x blink. On success the spool ID is stored as pending, the `pending_spool_id_timeout` countdown starts (set in `mmu_parameters.cfg`), and polling stops.
+2. **Tap your spool tag on the shared reader.** NFC reads the UID and looks it up in Spoolman. Tag detection can flash yellow, auto-create can run a yellow chase while Spoolman creates a missing spool, and the ready-to-load confirmation is the green 2x blink. On success the spool ID is stored as pending, its timeout countdown starts, and polling stops.
 
 3. **Drop the spool into an MMU lane** (physical action — NFC takes no action here).
 
@@ -203,7 +203,7 @@ force_spool_id:         true
 | `startup_polling` | `1` in the shipped template | Set to `1` to start polling at Klipper boot. |
 | `scan_poll_interval` | inherited from `[nfc_gate]` | Seconds between shared-reader tag reads while polling. The shipped default is `0.25`. |
 | `poll_interval` | inherited from `[nfc_gate]` | Ignored for shared-reader read cadence; lane readers still use it for normal background polling. |
-| `pending_spool_id_timeout` | set in `mmu_parameters.cfg` | Seconds a resolved spool stays eligible for the next preload. Set in Happy Hare's `[mmu]` section (`~/printer_data/config/mmu/base/mmu_parameters.cfg`); NFC reads it automatically at connect time (falls back to 30 s). |
+| `pending_spool_id_timeout` | Happy Hare `[mmu]` value or `60s` | Seconds a resolved spool stays eligible for the next preload. NFC uses Happy Hare's active `[mmu]` value when Klipper exposes it; otherwise it uses 60 s. |
 | `shared_read_timeout` | `120.0` | Seconds polling may run after `NFC_SHARED READ=1` without resolving a tag before auto-stopping. Has no effect when started via `startup_polling` or after a successful `PRELOAD_CHECK`. |
 | `shared_tag_read_effect` | `''` | Name of a `[mmu_led_effect]` to play as soon as the shared reader sees a tag. |
 | `read_effect_duration` | `2.0` | HH duration used by `NFC_SHARED LED_TEST=1`. Normal shared scans do not pass this duration to HH; NFC uses it only as a failsafe release window if no follow-up state replaces the read cue. |
@@ -324,7 +324,7 @@ Run `NFC_DOCTOR` and confirm it reports the shared preload hook as present. If
 the pending spool expired before preload, tap the tag again.
 
 **`NFC_STATUS` shows `expired`.**
-The pending timeout elapsed before the preload fired. The expired pending spool is cleared automatically; with `startup_polling: 1`, polling resumes. Tap the tag again. Increase `pending_spool_id_timeout` in `mmu_parameters.cfg` if you regularly take longer than the configured window between tapping and loading.
+The pending timeout elapsed before the preload fired. The expired pending spool is cleared automatically; with `startup_polling: 1`, polling resumes. Tap the tag again. NFC uses 60 s unless Happy Hare exposes an explicit active `[mmu]` `pending_spool_id_timeout` value.
 
 **Console shows "uid=<uid> not in Spoolman after N attempts".**
 The tag is not registered in Spoolman. Either register the spool first or use `MMU_PRELOAD` to load without spool assignment.

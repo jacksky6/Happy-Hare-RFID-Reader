@@ -1244,7 +1244,7 @@ class NFCGate:
         # ── Shared reader config and state ───────────────────────────────────
         # (_shared, _gate, _scan_enabled already set above)
         if self._shared:
-            self._shared_pending_timeout = 30.0  # overwritten at connect from [mmu] pending_spool_id_timeout
+            self._shared_pending_timeout = 60.0  # overwritten at connect from [mmu] pending_spool_id_timeout
             self._shared_read_timeout = config.getfloat(
                 'shared_read_timeout', 120.0, minval=1.0)
             self._shared_led_segment = config.get(
@@ -1281,7 +1281,7 @@ class NFCGate:
                 'shared_missed_limit', _SHARED_MISSED_RESOLUTION_LIMIT,
                 minval=1)
         else:
-            self._shared_pending_timeout = 30.0
+            self._shared_pending_timeout = 60.0
             self._shared_read_timeout    = 120.0
             self._shared_tag_read_effect    = ''
             self._shared_read_effect_duration = _SHARED_READ_EFFECT_DURATION
@@ -2896,7 +2896,7 @@ class NFCGate:
         return os.path.abspath(os.path.join(
             os.path.expanduser('~/printer_data/config'), path))
 
-    def _read_mmu_pending_timeout(self, default=30.0):
+    def _read_mmu_pending_timeout(self, default=60.0):
         try:
             configfile = self.printer.lookup_object('configfile', None)
             if configfile is not None:
