@@ -857,6 +857,7 @@ class NFCGateDefaults:
                                                    minval=4, maxval=135)
         self.bambu_reads          = config.getboolean('bambu_reads', False)
         self.spoolman_auto_create     = config.getboolean('spoolman_auto_create', False)
+        self.happy_hare_v4        = config.getboolean('happy_hare_v4', False)
         self.scan_searching_effect    = config.get('scan_searching_effect',   'mmu_clockwise_slow')
         self.scan_tag_read_effect     = config.get('scan_tag_read_effect',    'mmu_RFID_read')
         self.scan_rewind_effect       = config.get('scan_rewind_effect',      'mmu_anticlock_fast')
@@ -1006,6 +1007,7 @@ class NFCGate:
             self._tag_parsing = False
             self._bambu_reads = False
             self._spoolman_auto_create = False
+            self._happy_hare_v4 = d.happy_hare_v4 if d else False
             self._scan_searching_effect   = d.scan_searching_effect   if d else 'mmu_clockwise_slow'
             self._scan_tag_read_effect    = d.scan_tag_read_effect    if d else 'mmu_RFID_read'
             self._scan_rewind_effect      = d.scan_rewind_effect      if d else 'mmu_anticlock_fast'
@@ -1188,6 +1190,8 @@ class NFCGate:
             self._diagnostic_warnings.append(warning)
         self._spoolman_auto_create = config.getboolean('spoolman_auto_create',
                                                         d.spoolman_auto_create if d else False)
+        self._happy_hare_v4 = config.getboolean(
+            'happy_hare_v4', d.happy_hare_v4 if d else False)
         if self._spoolman_auto_create and not self._tag_parsing:
             warning = ("[%s]: spoolman_auto_create=True has no effect when "
                        "tag_parsing=False" % self._name)
@@ -1495,7 +1499,7 @@ class NFCGate:
     def _play_lane_led_test_effect(self, effect):
         return LEDEffectManager(
             self.printer, reactor=self.reactor, runner=self._safe_run_script,
-            name=self._name).play_led_test(
+            name=self._name, happy_hare_v4=self._happy_hare_v4).play_led_test(
                 effect, self._gate, async_dispatch=True, log_failure=False)
 
     def _schedule_lane_led_test_cycles(self, effect, cycles):
@@ -1503,7 +1507,7 @@ class NFCGate:
             return
         LEDEffectManager(
             self.printer, reactor=self.reactor, runner=self._safe_run_script,
-            name=self._name).schedule_lane_test_cycles(
+            name=self._name, happy_hare_v4=self._happy_hare_v4).schedule_lane_test_cycles(
                 effect, self._gate, cycles=cycles,
                 duration=LANE_LED_TEST_DURATION, gap=LANE_LED_TEST_GAP,
                 skip_restore=lambda: getattr(self, '_scan_mode', False))
@@ -1581,7 +1585,7 @@ class NFCGate:
         # GCode mutex and deadlocks).
         LEDEffectManager(
             self.printer, reactor=self.reactor, runner=self._safe_run_script,
-            name=self._name).play_shared_event(
+            name=self._name, happy_hare_v4=self._happy_hare_v4).play_shared_event(
                 event, effect_name,
                 led_unit=led_unit,
                 segment=segment,
@@ -1674,7 +1678,7 @@ class NFCGate:
         # GCode mutex and deadlocks).
         LEDEffectManager(
             self.printer, reactor=self.reactor, runner=self._safe_run_script,
-            name=self._name).release(async_dispatch=True)
+            name=self._name, happy_hare_v4=self._happy_hare_v4).release(async_dispatch=True)
 
     def _set_reading(self, gcmd, enabled):
         if enabled:

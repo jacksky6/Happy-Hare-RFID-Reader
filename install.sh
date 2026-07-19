@@ -1510,9 +1510,19 @@ if [ -f "${NFC_READER_CFG}" ]; then
     echo ""
 fi
 
-# ── Q1: Reader layout ─────────────────────────────────────────────────────────
+# ── Q1: Happy Hare version ────────────────────────────────────────────────────
+echo "1. Happy Hare version"
+echo "   $(choice_style v3 v3) = V3 LED compatibility transport"
+echo "   $(choice_style v4 v3) = V4 generated direct LED transport"
+prompt_choice HH_VERSION \
+    "   Select Happy Hare version" \
+    "v3" \
+    "v3" "v4"
+echo ""
+
+# ── Q2: Reader layout ─────────────────────────────────────────────────────────
 DEFAULT_READER_TYPE="$(detect_reader_type "${PRINTER_CFG}" "${NFC_READER_HW_CFG}" "${NFC_READER_SHARED_CFG}" "${NFC_SHARED_READER_CFG}")"
-echo "1. Reader layout"
+echo "2. Reader layout"
 echo "   $(choice_style lane "${DEFAULT_READER_TYPE}")   = per-lane NFC readers, one per EBB42 board"
 echo "   $(choice_style shared "${DEFAULT_READER_TYPE}") = single NFC reader inside the MMU body for staging spools"
 prompt_choice READER_TYPE \
@@ -1523,15 +1533,6 @@ echo ""
 
 # ── Lane path ─────────────────────────────────────────────────────────────────
 if [ "${READER_TYPE}" = "lane" ]; then
-
-    echo "2. Happy Hare version"
-    echo "   $(choice_style v3 v3) = conventional lane0 / mmu0 naming"
-    echo "   $(choice_style v4 v3) = unit0_lane0 / unit0_gate0 naming"
-    prompt_choice HH_VERSION \
-        "   Select Happy Hare version" \
-        "v3" \
-        "v3" "v4"
-    echo ""
 
     DEFAULT_LANE_COUNT="$(count_lane_sections "${NFC_READER_HW_CFG}" "${HH_VERSION}")"
     prompt_with_default LANE_COUNT \
@@ -1624,7 +1625,6 @@ if [ "${READER_TYPE}" = "lane" ]; then
 # ── Shared path ───────────────────────────────────────────────────────────────
 else
 
-    HH_VERSION=""
     LANE_COUNT="0"
     LANE_MCU_PREFIX=""
     LANE_I2C_BUS=""
@@ -1744,6 +1744,7 @@ echo ""
 echo "${BOLD}════════════════════════════════════════════════════════════════${RESET}"
 echo "${BOLD}  Install summary — review before writing${RESET}"
 echo "${BOLD}════════════════════════════════════════════════════════════════${RESET}"
+echo "  Happy Hare:        ${HH_VERSION}"
 echo "  Reader layout:     ${READER_TYPE}"
 echo "  Spoolman:          ${SPOOLMAN_URL}"
 echo "  Startup polling:   ${STARTUP_POLLING}"
@@ -1770,7 +1771,6 @@ if [ "${READER_TYPE}" = "shared" ]; then
     echo "    bypass read:     ${BOLD}${MMU_LED_UNIT}_mmu_RFID_bypass_read_exit${RESET}"
     echo "    bypass ready:    ${BOLD}${MMU_LED_UNIT}_mmu_RFID_bypass_ready_exit${RESET}"
 else
-    echo "  Happy Hare:        ${HH_VERSION}"
     echo "  Lane count:        ${LANE_COUNT}"
     if [ "${HH_VERSION}" = "v4" ]; then
         echo "  Lane mapping:      unit0_laneN -> unit0_gateN"
@@ -1981,6 +1981,8 @@ set_config_value "${NFC_READER_CFG}" "nfc_gate" "bambu_reads" \
     "$( [ "${BAMBU_READS}" = "yes" ] && echo "True" || echo "False" )"
 set_config_value "${NFC_READER_CFG}" "nfc_gate" "spoolman_auto_create" \
     "$( [ "${SPOOLMAN_AUTO_CREATE}" = "yes" ] && echo "True" || echo "False" )"
+set_config_value "${NFC_READER_CFG}" "nfc_gate" "happy_hare_v4" \
+    "$( [ "${HH_VERSION}" = "v4" ] && echo "True" || echo "False" )"
 
 if [ "${READER_TYPE}" = "shared" ]; then
     # startup_polling and scan_enabled live in [nfc_gate shared], not [nfc_gate]

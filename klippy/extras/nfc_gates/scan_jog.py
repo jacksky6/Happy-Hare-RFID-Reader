@@ -55,7 +55,8 @@ def _led_effect(gate, effect_name):
         return
     led = LEDEffectManager(
         gate.printer, reactor=gate.reactor, name=gate._name,
-        console=getattr(gate, '_console', None))
+        console=getattr(gate, '_console', None),
+        happy_hare_v4=getattr(gate, '_happy_hare_v4', False))
     result = led.play_lane_event(
         _scan_led_event(effect_name), effect_name, gate._gate, replace=True)
     if not result.ok and result.error is not None:
@@ -107,7 +108,9 @@ def _led_release(gate):
     if getattr(gate, '_scan_rewind_led_released', False):
         return True
     _cancel_led_reassert(gate)
-    led = LEDEffectManager(gate.printer, reactor=gate.reactor, name=gate._name)
+    led = LEDEffectManager(
+        gate.printer, reactor=gate.reactor, name=gate._name,
+        happy_hare_v4=getattr(gate, '_happy_hare_v4', False))
     result = led.release(gate=gate._gate)
     if result.ok:
         gate._scan_rewind_led_released = True
